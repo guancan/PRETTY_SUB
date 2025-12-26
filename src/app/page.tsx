@@ -13,7 +13,7 @@ import Logger from '@/lib/logger';
 import { Player, PlayerRef } from '@remotion/player';
 import { getVideoMetadata } from '@/lib/videoUtils';
 import { MainComposition } from '@/remotion/MainComposition';
-import { calculatePlayableClips, calculateTotalDuration } from '@/lib/timelineUtils';
+import { calculatePlayableClips, calculateTotalDuration, mapOriginalToPlayableTime } from '@/lib/timelineUtils';
 
 export default function Home() {
   const [videoFile, setVideoFile] = useState<File | null>(null);
@@ -87,16 +87,14 @@ export default function Home() {
   }, [undo, redo, canUndo, canRedo]);
 
   // Handle seeking from Editor
-  const handleSeek = (time: number) => {
-    if (playerRef.current) {
-      // Remotion Player seeks by frame usually, but seekTo accepts time if not specified? 
-      // Docs: seekTo(frame)
-      // We assume 30fps for now or read from player?
-      // Actually playerRef.current.seekTo accepts number (frame).
-      // We need fps. Let's assume 30 for the prototype or better yet, if we can find FPS.
-      // For now, let's just multiply by 30.
+  const handleSeek = (originalTime: number) => {
+    if (playerRef.current && videoMetadata) {
+      // Map original time to playable time because we might have cuts
+      const clips = calculatePlayableClips(segments, videoMetadata.durationInSeconds);
+      const playableTime = mapOriginalToPlayableTime(originalTime, clips);
+
       const fps = 30;
-      playerRef.current.seekTo(time * fps);
+      playerRef.current.seekTo(playableTime * fps);
     }
   };
 

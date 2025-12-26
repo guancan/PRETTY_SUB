@@ -103,3 +103,32 @@ export function calculatePlayableClips(segments: SubtitleSegment[], videoDuratio
 export function calculateTotalDuration(clips: TimeRange[]): number {
     return clips.reduce((acc, clip) => acc + (clip.end - clip.start), 0);
 }
+/**
+ * Maps an original video timestamp to the equivalent time on the playable (edited) timeline.
+ * If the time falls within a cut, it snaps to the nearest valid playback point.
+ * 
+ * @param originalTime The timestamp in the original source video
+ * @param clips The list of playable clips (calculated from segments)
+ * @returns The timestamp on the playable timeline
+ */
+export function mapOriginalToPlayableTime(originalTime: number, clips: TimeRange[]): number {
+    let accumulatedPlayableTime = 0;
+
+    for (const clip of clips) {
+        // 1. Time is before this clip (it's in a cut preceding this clip)
+        if (originalTime < clip.start) {
+            return accumulatedPlayableTime;
+        }
+
+        // 2. Time is inside this clip
+        if (originalTime <= clip.end) {
+            return accumulatedPlayableTime + (originalTime - clip.start);
+        }
+
+        // 3. Time is after this clip
+        accumulatedPlayableTime += (clip.end - clip.start);
+    }
+
+    // If time is after all clips (end of video), return total duration
+    return accumulatedPlayableTime;
+}
