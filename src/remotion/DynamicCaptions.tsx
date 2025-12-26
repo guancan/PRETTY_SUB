@@ -13,12 +13,13 @@ const PRESET_COLORS = [
 interface DynamicCaptionsProps {
     segments: SubtitleSegment[];
     fontFamily?: string;
+    globalTimeOffset?: number; // Added to support time shifting
 }
 
-export const DynamicCaptions: React.FC<DynamicCaptionsProps> = ({ segments, fontFamily }) => {
+export const DynamicCaptions: React.FC<DynamicCaptionsProps> = ({ segments, fontFamily, globalTimeOffset = 0 }) => {
     const frame = useCurrentFrame();
     const { fps } = useVideoConfig();
-    const currentTime = frame / fps;
+    const currentTime = (frame / fps) + globalTimeOffset;
 
     // Find the current segment
     // Optimization: In a long video, this simple find might be slow, but fine for prototype

@@ -13,6 +13,7 @@ import Logger from '@/lib/logger';
 import { Player, PlayerRef } from '@remotion/player';
 import { getVideoMetadata } from '@/lib/videoUtils';
 import { MainComposition } from '@/remotion/MainComposition';
+import { calculatePlayableClips, calculateTotalDuration } from '@/lib/timelineUtils';
 
 export default function Home() {
   const [videoFile, setVideoFile] = useState<File | null>(null);
@@ -251,9 +252,16 @@ export default function Home() {
                         inputProps={{
                           videoUrl: videoUrl,
                           segments: segments,
-                          fontFamily: selectedFont
+                          fontFamily: selectedFont,
+                          videoDurationSeconds: videoMetadata?.durationInSeconds
                         }}
-                        durationInFrames={videoMetadata ? Math.ceil(videoMetadata.durationInSeconds * 30) : 30 * 60 * 10}
+                        // Calculate *visual* duration based on cuts
+                        durationInFrames={(() => {
+                          if (!videoMetadata) return 30 * 60;
+                          const clips = calculatePlayableClips(segments, videoMetadata.durationInSeconds);
+                          const totalTime = calculateTotalDuration(clips);
+                          return Math.ceil(totalTime * 30);
+                        })()}
                         compositionWidth={videoMetadata?.width || 1920}
                         compositionHeight={videoMetadata?.height || 1080}
                         fps={30}
