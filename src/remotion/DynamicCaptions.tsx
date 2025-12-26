@@ -61,7 +61,7 @@ export const DynamicCaptions: React.FC<DynamicCaptionsProps> = ({ segments, font
                     // Handle `isDeleted` -> If deleted, do NOT render it? 
                     // If a word is deleted, maybe we should just skip rendering it in the sentence?
 
-                    if (word.isDeleted) return null;
+                    if (word.isDeleted || word.isCut) return null;
 
                     const isActive = currentTime >= word.start && currentTime <= word.end;
 
@@ -74,7 +74,7 @@ export const DynamicCaptions: React.FC<DynamicCaptionsProps> = ({ segments, font
                         <span
                             key={`${activeSegment.id}-${index}`}
                             style={{
-                                margin: '0 4px',
+                                margin: '0 8px',
                                 fontSize: 48,
                                 fontFamily: fontFamily || 'system-ui, -apple-system, sans-serif',
                                 fontWeight: word.color ? 800 : 600,

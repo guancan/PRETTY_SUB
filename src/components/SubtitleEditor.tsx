@@ -18,6 +18,8 @@ interface UIItem {
     start: number;
     end: number;
     isDeleted: boolean;
+    isCut?: boolean;
+    isGapCut?: boolean;
     color: number; // 0-3
     segmentId: string; // Belongs to which visual line 
     originalWordIndex?: number; // Pointer back to segment.words index
@@ -69,8 +71,10 @@ export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: E
                         start: 0,
                         end: word.start,
                         isDeleted: false,
+                        isGapCut: word.isGapCut || false,
                         color: 0,
-                        segmentId: seg.id
+                        segmentId: seg.id,
+                        originalWordIndex: 0 // Gap before start of segment is attached to word 0
                     });
                 }
 
@@ -85,8 +89,10 @@ export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: E
                             start: prevEnd,
                             end: word.start,
                             isDeleted: false,
+                            isGapCut: word.isGapCut || false,
                             color: 0,
-                            segmentId: seg.id
+                            segmentId: seg.id,
+                            originalWordIndex: wordIdx // Gap before wordIdx is attached to wordIdx
                         });
                     }
                 }
@@ -99,6 +105,8 @@ export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: E
                     start: word.start,
                     end: word.end,
                     isDeleted: word.isDeleted || false,
+                    isCut: word.isCut || false,
+                    isGapCut: word.isGapCut || false,
                     color: word.color || 0,
                     segmentId: seg.id,
                     originalWordIndex: wordIdx
@@ -259,12 +267,81 @@ export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: E
         onSegmentsChange(newSegments);
     };
 
+    // Action: Cut (Video + Text)
+    const cutSelected = () => {
+        // Updated logic to handle Gap Selection? 
+        // Our selection logic selects Item IDs.
+        // If ID is gap-{segId}-{wordIdx}, we need to find the word it belongs to.
+
+        // Helper to mark items
+        const selectedItemWrappers = items.filter(i => selectedIds.includes(i.id));
+        const updates = new Map<string, Map<number, Partial<SegmentWord>>>();
+
+        selectedItemWrappers.forEach(item => {
+            if (!updates.has(item.segmentId)) updates.set(item.segmentId, new Map());
+            const segUpdates = updates.get(item.segmentId)!;
+
+            if (item.type === 'gap') {
+                // Gap logic: Gap ID gap-{segId}-{wordIdx} OR gap-start
+                // Wait, gap-start is gap before word 0.
+                // gap-{segId}-{idx} is gap BEFORE word idx? No.
+                // Line 82: `id: gap-${seg.id}-${wordIdx}`
+                // Line 79: `gap = word.start - prevEnd`. It's Gap BEFORE wordIdx.
+                // So if we select gap-X-Y, we set word[Y].isGapCut = true.
+
+                // We need to parse ID or use item logic.
+                // item.originalWordIndex might be undefined for gaps in current implementation?
+                // Line 104 sets it for words.
+                // Let's check gap generation. lines 65-90. No originalWordIndex set.
+                // We should fix that in useMemo first? Or infer from ID.
+
+                // Let's infer from ID for now to minimize refactor risk if possible, 
+                // BUT adding originalWordIndex to gap items in useMemo is safer.
+                // However, let's look at `item` object in `cutSelected`.
+                // Actually, let's update `items` useMemo to include originalWordIndex for gaps too.
+                // The gap is associated with the *following* word.
+
+                // Let's assume we update useMemo below.
+                if (item.originalWordIndex !== undefined) {
+                    segUpdates.set(item.originalWordIndex, { ...segUpdates.get(item.originalWordIndex), isGapCut: true });
+                }
+            } else {
+                // Word
+                if (item.originalWordIndex !== undefined) {
+                    segUpdates.set(item.originalWordIndex, { ...segUpdates.get(item.originalWordIndex), isCut: true });
+                }
+            }
+        });
+
+        const newSegments = segments.map(seg => {
+            if (!updates.has(seg.id)) return seg;
+            const segMap = updates.get(seg.id)!;
+            return {
+                ...seg,
+                words: seg.words.map((w, idx) => {
+                    if (segMap.has(idx)) {
+                        return { ...w, ...segMap.get(idx) };
+                    }
+                    return w;
+                })
+            };
+        });
+        onSegmentsChange(newSegments);
+    };
+
+    // Action: Delete (Text only)
     const deleteSelected = () => {
+        // Only affects words
         modifyWords(w => ({ ...w, isDeleted: true }));
-        // Optionally clear selection or keep it to allow undo immediately
     };
 
     const keepOnlySelected = () => {
+        // Legacy: Keep selected, delete others.
+        // User behavior: "Keep Only" usually implies "Cut everything else".
+        // But user said "Delete" is text only. 
+        // If I "Keep Only Selected Text", do I delete other text? Yes.
+        // Do I cut other video? Maybe.
+        // For now, let's keep it as "Delete Text of Others" (isDeleted=true).
         const newSegments = segments.map(seg => ({
             ...seg,
             words: seg.words.map((w, idx) => {
@@ -278,7 +355,46 @@ export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: E
         onSegmentsChange(newSegments);
     };
 
-    const restoreSelected = () => modifyWords(w => ({ ...w, isDeleted: false }));
+    const restoreSelected = () => {
+        // Only restores CUT state. 
+        // User: "Deleted words cannot be restored" (via Restore button, probably implies Undo is fine).
+        // So we only set isCut=false and isGapCut=false.
+        // We do NOT touch isDeleted.
+
+        // We need custom logic because modifyWords only targets WORDS. 
+        // We need to target Gaps too.
+
+        const selectedItemWrappers = items.filter(i => selectedIds.includes(i.id));
+        const updates = new Map<string, Map<number, Partial<SegmentWord>>>();
+
+        selectedItemWrappers.forEach(item => {
+            if (!updates.has(item.segmentId)) updates.set(item.segmentId, new Map());
+            const segUpdates = updates.get(item.segmentId)!;
+
+            if (item.originalWordIndex !== undefined) {
+                if (item.type === 'gap') {
+                    segUpdates.set(item.originalWordIndex, { ...segUpdates.get(item.originalWordIndex), isGapCut: false });
+                } else {
+                    segUpdates.set(item.originalWordIndex, { ...segUpdates.get(item.originalWordIndex), isCut: false });
+                }
+            }
+        });
+
+        const newSegments = segments.map(seg => {
+            if (!updates.has(seg.id)) return seg;
+            const segMap = updates.get(seg.id)!;
+            return {
+                ...seg,
+                words: seg.words.map((w, idx) => {
+                    if (segMap.has(idx)) {
+                        return { ...w, ...segMap.get(idx) };
+                    }
+                    return w;
+                })
+            };
+        });
+        onSegmentsChange(newSegments);
+    };
 
     const setColor = (colorIndex: number) => {
         modifyWords(w => ({ ...w, color: colorIndex }));
@@ -344,17 +460,17 @@ export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: E
                     </div>
 
                     {/* Actions Column */}
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                    <button onClick={cutSelected} className="btn-editor-action vertical cut">
+                        <Scissors size={14} /> <span>Cut {selectedIds.some(id => id.includes('gap')) ? '(Silence)' : '(Video)'}</span>
+                    </button>
+                    {!selectedIds.some(id => id.includes('gap')) && (
                         <button onClick={deleteSelected} className="btn-editor-action vertical delete">
-                            <Trash2 size={14} /> <span>Delete</span>
+                            <Trash2 size={14} /> <span>Delete (Text)</span>
                         </button>
-                        <button onClick={keepOnlySelected} className="btn-editor-action vertical keep">
-                            <Scissors size={14} /> <span>Keep Only</span>
-                        </button>
-                        <button onClick={restoreSelected} className="btn-editor-action vertical restore">
-                            <Check size={14} /> <span>Restore</span>
-                        </button>
-                    </div>
+                    )}
+                    <button onClick={restoreSelected} className="btn-editor-action vertical restore">
+                        <Check size={14} /> <span>Restore Cut</span>
+                    </button>
 
                     <div style={{ height: 1, background: 'rgba(255,255,255,0.05)', margin: '2px 0' }} />
 
@@ -406,33 +522,34 @@ export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: E
                                                 transition: 'all 0.15s ease-out',
                                                 ...(!isGap ? {
                                                     // WORD STYLES
-                                                    background: isSelected ? 'rgba(255,255,255,0.1)' : 'transparent',
-                                                    border: `1px solid ${isSelected ? 'rgba(255,255,255,0.3)' : 'transparent'}`,
+                                                    background: item.isCut ? 'rgba(244, 63, 94, 0.1)' : (isSelected ? 'rgba(255,255,255,0.1)' : 'transparent'),
+                                                    border: `1px solid ${item.isCut ? 'rgba(244, 63, 94, 0.3)' : (isSelected ? 'rgba(255,255,255,0.3)' : 'transparent')}`,
 
                                                     // Color Logic
-                                                    color: item.isDeleted ? 'var(--text-secondary)' : color,
-                                                    textDecoration: item.isDeleted ? 'line-through' : 'none',
-                                                    opacity: item.isDeleted ? 0.3 : 1,
+                                                    color: item.isCut ? '#f43f5e' : (item.isDeleted ? 'var(--text-secondary)' : color),
+                                                    textDecoration: item.isDeleted || item.isCut ? 'line-through' : 'none',
+                                                    opacity: item.isDeleted ? 0.3 : (item.isCut ? 0.6 : 1),
 
-                                                    // Text Shadow for colored words to make them pop
-                                                    textShadow: item.color > 0 && !item.isDeleted ? `0 0 10px ${color}40` : 'none',
+                                                    // Text Shadow
+                                                    textShadow: item.color > 0 && !item.isDeleted && !item.isCut ? `0 0 10px ${color}40` : 'none',
                                                     fontWeight: item.color > 0 ? 600 : 400
                                                 } : {
                                                     // GAP STYLES
-                                                    background: isSelected ? 'rgba(234, 179, 8, 0.1)' : 'transparent',
-                                                    border: `1px dashed ${isSelected ? '#eab308' : 'rgba(255,255,255,0.1)'}`,
-                                                    opacity: item.isDeleted ? 0.2 : 0.6,
-                                                    color: isSelected ? '#eab308' : 'var(--text-secondary)',
+                                                    background: (isGap && item.isGapCut) ? 'rgba(244, 63, 94, 0.2)' : (isSelected ? 'rgba(234, 179, 8, 0.1)' : 'transparent'),
+                                                    border: `1px dashed ${(isGap && item.isGapCut) ? '#f43f5e' : (isSelected ? '#eab308' : 'rgba(255,255,255,0.1)')}`,
+                                                    opacity: (isGap && item.isGapCut) ? 0.8 : 0.6,
+                                                    color: (isGap && item.isGapCut) ? '#f43f5e' : (isSelected ? '#eab308' : 'var(--text-secondary)'),
                                                     minWidth: 24,
                                                     textAlign: 'center',
                                                     display: 'flex',
                                                     alignItems: 'center',
-                                                    justifyContent: 'center'
+                                                    justifyContent: 'center',
+                                                    textDecoration: (isGap && item.isGapCut) ? 'line-through' : 'none'
                                                 })
                                             }}
-                                            title={isGap ? `Silence: ${item.text}` : `Word: ${item.text}`}
+                                            title={isGap ? (item.isGapCut ? "Cut Gap" : `Silence: ${item.text}`) : `Word: ${item.text}`}
                                         >
-                                            {isGap ? (item.isDeleted ? null : <MicOff size={10} />) : null}
+                                            {isGap ? (item.isGapCut ? <Scissors size={10} /> : <MicOff size={10} />) : null}
                                             {item.text}
                                         </span>
                                     );
@@ -461,8 +578,9 @@ export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: E
         }
         .btn-editor-action:hover { background: rgba(255,255,255,0.05); color: white; }
         
-        .btn-editor-action.delete:hover { color: #f43f5e; background: rgba(244, 63, 94, 0.1); }
-        .btn-editor-action.keep:hover { color: #22c55e; background: rgba(34, 197, 94, 0.1); }
+        .btn-editor-action.cut:hover { color: #f43f5e; background: rgba(244, 63, 94, 0.1); }
+        .btn-editor-action.delete:hover { color: #a1a1aa; background: rgba(255, 255, 255, 0.1); }
+        .btn-editor-action.restore:hover { color: #3b82f6; background: rgba(59, 130, 246, 0.1); }
         
         .word-chip:hover {
             background: rgba(255,255,255,0.05) !important;

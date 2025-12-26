@@ -15,14 +15,35 @@ export interface TimeRange {
  * @returns Array of TimeRange representing the parts of the video to play
  */
 export function calculatePlayableClips(segments: SubtitleSegment[], videoDuration: number): TimeRange[] {
-    // 1. Collect all deleted ranges
+    // 1. Collect all CUT ranges (not just deleted)
     const deletedRanges: TimeRange[] = [];
 
-    segments.forEach(seg => {
-        seg.words.forEach(word => {
-            if (word.isDeleted) {
+    segments.forEach((seg, segIdx) => {
+        // Collect end time of previous segment for gap calculation
+        let prevEnd = 0;
+        if (segIdx > 0 && segments[segIdx - 1].words.length > 0) {
+            const prevSeg = segments[segIdx - 1];
+            prevEnd = prevSeg.words[prevSeg.words.length - 1].end;
+        }
+
+        seg.words.forEach((word, wordIdx) => {
+            // 1. Handle Preceding Gap Cut
+            if (word.isGapCut) {
+                // The gap is between prevEnd and word.start
+                // Note: prevEnd is initialized to 0 for first word of first segment
+                // Use Math.max to avoid negative ranges if timestamps are wonky
+                const gapStart = Math.max(0, prevEnd);
+                if (word.start > gapStart) {
+                    deletedRanges.push({ start: gapStart, end: word.start });
+                }
+            }
+
+            // 2. Handle Word Cut
+            if (word.isCut) {
                 deletedRanges.push({ start: word.start, end: word.end });
             }
+
+            prevEnd = word.end;
         });
     });
 

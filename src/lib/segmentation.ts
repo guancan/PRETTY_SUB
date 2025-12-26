@@ -3,7 +3,9 @@ import { TranscriptionWord } from '@/actions/transcribe';
 export interface SegmentWord extends TranscriptionWord {
     // Enhanced properties for the editor
     color?: number; // 0-3
-    isDeleted?: boolean;
+    isDeleted?: boolean; // Text deleted, video plays
+    isCut?: boolean;     // Video cut, text hidden
+    isGapCut?: boolean;  // Preceding gap cut
 }
 
 export interface SubtitleSegment {
