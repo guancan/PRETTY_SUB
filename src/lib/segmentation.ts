@@ -14,6 +14,7 @@ export interface SubtitleSegment {
     start: number;
     end: number;
     words: SegmentWord[];
+    yPosition?: number; // 0-100 percentage from top
 }
 
 export interface SegmentationOptions {

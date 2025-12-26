@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { SubtitleSegment, SegmentWord } from '@/lib/segmentation';
-import { Trash2, Check, Scissors, MicOff, Palette, X } from 'lucide-react';
+import { Trash2, Check, Scissors, MicOff, Palette, X, ArrowUpDown } from 'lucide-react';
 
 interface EditorProps {
     segments: SubtitleSegment[];
@@ -43,6 +43,7 @@ export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: E
 
     const [selection, setSelection] = useState<SelectionState>({ startId: null, endId: null });
     const [menuPosition, setMenuPosition] = useState<{ top: number; left: number } | null>(null);
+    const [expandedLayoutId, setExpandedLayoutId] = useState<string | null>(null);
 
     // Calculate display items (Memoized purely for display)
 
@@ -402,6 +403,16 @@ export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: E
         modifyWords(w => ({ ...w, color: colorIndex }));
     }
 
+    const updateSegmentY = (segId: string, yPos: number | undefined) => {
+        const newSegments = segments.map(s => {
+            if (s.id === segId) {
+                return { ...s, yPosition: yPos };
+            }
+            return s;
+        });
+        onSegmentsChange(newSegments);
+    };
+
     // Clear selection
     const clearSelection = () => {
         setSelection({ startId: null, endId: null });
@@ -493,74 +504,124 @@ export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: E
                     const startTime = segmentItems[0].start.toFixed(2);
 
                     return (
-                        <div key={segId} style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
-                            <div style={{
-                                minWidth: 50,
-                                fontSize: '0.75rem',
-                                color: 'var(--text-secondary)',
-                                paddingTop: 6,
-                                fontFamily: 'monospace',
-                                opacity: 0.7
-                            }}>
-                                {startTime}
+                        <div key={segId} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                            <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
+                                <div style={{
+                                    minWidth: 50,
+                                    fontSize: '0.75rem',
+                                    color: 'var(--text-secondary)',
+                                    paddingTop: 6,
+                                    fontFamily: 'monospace',
+                                    opacity: 0.7,
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    gap: 4
+                                }}>
+                                    <span>{startTime}</span>
+                                    <button
+                                        onClick={() => setExpandedLayoutId(expandedLayoutId === segId ? null : segId)}
+                                        title="Adjust Vertical Position"
+                                        style={{
+                                            background: 'none',
+                                            border: 'none',
+                                            color: expandedLayoutId === segId ? 'var(--accent-primary)' : 'inherit',
+                                            cursor: 'pointer',
+                                            padding: 0,
+                                            opacity: 0.6
+                                        }}
+                                    >
+                                        <ArrowUpDown size={14} />
+                                    </button>
+                                </div>
+
+                                <div style={{ flex: 1, display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+                                    {segmentItems.map(item => {
+                                        const isSelected = selectedIds.includes(item.id);
+                                        const isGap = item.type === 'gap';
+                                        const color = PRESET_COLORS[item.color] || PRESET_COLORS[0];
+
+                                        return (
+                                            <span
+                                                key={item.id}
+                                                onClick={(e) => handleItemClick(item.id, e)}
+                                                className={`editor-chip ${isGap ? 'gap-chip' : 'word-chip'} ${isSelected ? 'selected' : ''} ${item.isDeleted ? 'deleted' : ''}`}
+                                                style={{
+                                                    padding: isGap ? '2px 6px' : '4px 8px',
+                                                    borderRadius: 6,
+                                                    cursor: 'pointer',
+                                                    fontSize: isGap ? '0.75rem' : '1.1rem',
+                                                    transition: 'all 0.15s ease-out',
+                                                    ...(!isGap ? {
+                                                        // WORD STYLES
+                                                        background: item.isCut ? 'rgba(244, 63, 94, 0.1)' : (isSelected ? 'rgba(255,255,255,0.1)' : 'transparent'),
+                                                        border: `1px solid ${item.isCut ? 'rgba(244, 63, 94, 0.3)' : (isSelected ? 'rgba(255,255,255,0.3)' : 'transparent')}`,
+
+                                                        // Color Logic
+                                                        color: item.isCut ? '#f43f5e' : (item.isDeleted ? 'var(--text-secondary)' : color),
+                                                        textDecoration: item.isDeleted || item.isCut ? 'line-through' : 'none',
+                                                        opacity: item.isDeleted ? 0.3 : (item.isCut ? 0.6 : 1),
+
+                                                        // Text Shadow
+                                                        textShadow: item.color > 0 && !item.isDeleted && !item.isCut ? `0 0 10px ${color}40` : 'none',
+                                                        fontWeight: item.color > 0 ? 600 : 400
+                                                    } : {
+                                                        // GAP STYLES
+                                                        background: (isGap && item.isGapCut) ? 'rgba(244, 63, 94, 0.2)' : (isSelected ? 'rgba(234, 179, 8, 0.1)' : 'transparent'),
+                                                        border: `1px dashed ${(isGap && item.isGapCut) ? '#f43f5e' : (isSelected ? '#eab308' : 'rgba(255,255,255,0.1)')}`,
+                                                        opacity: (isGap && item.isGapCut) ? 0.8 : 0.6,
+                                                        color: (isGap && item.isGapCut) ? '#f43f5e' : (isSelected ? '#eab308' : 'var(--text-secondary)'),
+                                                        minWidth: 24,
+                                                        textAlign: 'center',
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'center',
+                                                        textDecoration: (isGap && item.isGapCut) ? 'line-through' : 'none'
+                                                    })
+                                                }}
+                                                title={isGap ? (item.isGapCut ? "Cut Gap" : `Silence: ${item.text}`) : `Word: ${item.text}`}
+                                            >
+                                                {isGap ? (item.isGapCut ? <Scissors size={10} /> : <MicOff size={10} />) : null}
+                                                {item.text}
+                                            </span>
+                                        );
+                                    })}
+                                </div>
                             </div>
 
-                            <div style={{ flex: 1, display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
-                                {segmentItems.map(item => {
-                                    const isSelected = selectedIds.includes(item.id);
-                                    const isGap = item.type === 'gap';
-                                    const color = PRESET_COLORS[item.color] || PRESET_COLORS[0];
+                            {/* Layout Slider Row */}
+                            {expandedLayoutId === segId && (() => {
+                                // Find segment to get current Y
+                                const currentSeg = segments.find(s => s.id === segId);
+                                const currentY = currentSeg?.yPosition;
 
-                                    return (
-                                        <span
-                                            key={item.id}
-                                            onClick={(e) => handleItemClick(item.id, e)}
-                                            className={`editor-chip ${isGap ? 'gap-chip' : 'word-chip'} ${isSelected ? 'selected' : ''} ${item.isDeleted ? 'deleted' : ''}`}
-                                            style={{
-                                                padding: isGap ? '2px 6px' : '4px 8px',
-                                                borderRadius: 6,
-                                                cursor: 'pointer',
-                                                fontSize: isGap ? '0.75rem' : '1.1rem',
-                                                transition: 'all 0.15s ease-out',
-                                                ...(!isGap ? {
-                                                    // WORD STYLES
-                                                    background: item.isCut ? 'rgba(244, 63, 94, 0.1)' : (isSelected ? 'rgba(255,255,255,0.1)' : 'transparent'),
-                                                    border: `1px solid ${item.isCut ? 'rgba(244, 63, 94, 0.3)' : (isSelected ? 'rgba(255,255,255,0.3)' : 'transparent')}`,
-
-                                                    // Color Logic
-                                                    color: item.isCut ? '#f43f5e' : (item.isDeleted ? 'var(--text-secondary)' : color),
-                                                    textDecoration: item.isDeleted || item.isCut ? 'line-through' : 'none',
-                                                    opacity: item.isDeleted ? 0.3 : (item.isCut ? 0.6 : 1),
-
-                                                    // Text Shadow
-                                                    textShadow: item.color > 0 && !item.isDeleted && !item.isCut ? `0 0 10px ${color}40` : 'none',
-                                                    fontWeight: item.color > 0 ? 600 : 400
-                                                } : {
-                                                    // GAP STYLES
-                                                    background: (isGap && item.isGapCut) ? 'rgba(244, 63, 94, 0.2)' : (isSelected ? 'rgba(234, 179, 8, 0.1)' : 'transparent'),
-                                                    border: `1px dashed ${(isGap && item.isGapCut) ? '#f43f5e' : (isSelected ? '#eab308' : 'rgba(255,255,255,0.1)')}`,
-                                                    opacity: (isGap && item.isGapCut) ? 0.8 : 0.6,
-                                                    color: (isGap && item.isGapCut) ? '#f43f5e' : (isSelected ? '#eab308' : 'var(--text-secondary)'),
-                                                    minWidth: 24,
-                                                    textAlign: 'center',
-                                                    display: 'flex',
-                                                    alignItems: 'center',
-                                                    justifyContent: 'center',
-                                                    textDecoration: (isGap && item.isGapCut) ? 'line-through' : 'none'
-                                                })
-                                            }}
-                                            title={isGap ? (item.isGapCut ? "Cut Gap" : `Silence: ${item.text}`) : `Word: ${item.text}`}
-                                        >
-                                            {isGap ? (item.isGapCut ? <Scissors size={10} /> : <MicOff size={10} />) : null}
-                                            {item.text}
+                                return (
+                                    <div style={{ marginLeft: 66, marginBottom: 16, padding: '8px 12px', background: 'rgba(255,255,255,0.03)', borderRadius: 8, display: 'flex', alignItems: 'center', gap: 12 }}>
+                                        <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
+                                            Y-Axis: {currentY !== undefined ? `${currentY}%` : 'Default'}
                                         </span>
-                                    );
-                                })}
-                            </div>
+                                        <input
+                                            type="range"
+                                            min="0"
+                                            max="100"
+                                            value={currentY !== undefined ? currentY : 80} // Default 80 visual
+                                            onChange={(e) => updateSegmentY(segId, Number(e.target.value))}
+                                            style={{ width: 150, accentColor: 'var(--accent-primary)' }}
+                                        />
+                                        {currentY !== undefined && (
+                                            <button
+                                                onClick={() => updateSegmentY(segId, undefined)}
+                                                style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', background: 'none', border: '1px solid var(--border-subtle)', padding: '2px 6px', borderRadius: 4, cursor: 'pointer' }}
+                                            >
+                                                Reset
+                                            </button>
+                                        )}
+                                    </div>
+                                );
+                            })()}
                         </div>
                     );
                 })}
-            </div>
+            </div >
 
             <style jsx global>{`
         .btn-editor-action {
@@ -589,6 +650,6 @@ export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: E
             transform: translateY(-1px);
         }
       `}</style>
-        </div>
+        </div >
     );
 }

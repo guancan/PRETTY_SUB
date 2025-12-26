@@ -14,9 +14,10 @@ interface DynamicCaptionsProps {
     segments: SubtitleSegment[];
     fontFamily?: string;
     globalTimeOffset?: number; // Added to support time shifting
+    globalYPosition?: number; // 0-100 percentage from top
 }
 
-export const DynamicCaptions: React.FC<DynamicCaptionsProps> = ({ segments, fontFamily, globalTimeOffset = 0 }) => {
+export const DynamicCaptions: React.FC<DynamicCaptionsProps> = ({ segments, fontFamily, globalTimeOffset = 0, globalYPosition = 80 }) => {
     const frame = useCurrentFrame();
     const { fps } = useVideoConfig();
     const currentTime = (frame / fps) + globalTimeOffset;
@@ -29,16 +30,20 @@ export const DynamicCaptions: React.FC<DynamicCaptionsProps> = ({ segments, font
 
     if (!activeSegment) return null;
 
+    const yPos = activeSegment.yPosition !== undefined ? activeSegment.yPosition : globalYPosition;
+
     return (
         <div
             style={{
                 position: 'absolute',
-                bottom: 100,
+                top: `${yPos}%`,
                 left: 0,
                 width: '100%',
                 textAlign: 'center',
                 padding: '0 40px',
                 pointerEvents: 'none', // Allow clicks to pass through to video
+                transform: 'translateY(-50%)', // Center vertically on the point
+                transition: 'top 0.3s cubic-bezier(0.4, 0, 0.2, 1)', // Smooth transition if it changes
             }}
         >
             <div

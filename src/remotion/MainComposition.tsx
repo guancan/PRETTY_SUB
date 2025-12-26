@@ -9,9 +9,10 @@ export interface MainCompositionProps {
     segments: SubtitleSegment[];
     fontFamily?: string;
     videoDurationSeconds?: number; // Optional but recommended for accurate cuts
+    globalYPosition?: number;
 }
 
-export const MainComposition: React.FC<MainCompositionProps> = ({ videoUrl, segments, fontFamily, videoDurationSeconds }) => {
+export const MainComposition: React.FC<MainCompositionProps> = ({ videoUrl, segments, fontFamily, videoDurationSeconds, globalYPosition }) => {
     // Calculate clips on each render
     // If videoDurationSeconds is missing, default to a high number or try to estimate
     // Ideally we pass it from Page
@@ -45,6 +46,7 @@ export const MainComposition: React.FC<MainCompositionProps> = ({ videoUrl, segm
                                     segments={segments}
                                     fontFamily={fontFamily}
                                     globalTimeOffset={clip.start}
+                                    globalYPosition={globalYPosition}
                                 />
                             </AbsoluteFill>
                         </Series.Sequence>

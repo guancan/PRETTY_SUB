@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { Eye, List, Type, UploadCloud, FileAudio, FileText, Loader2 } from 'lucide-react';
+import { Eye, List, Type, UploadCloud, FileAudio, FileText, Loader2, ArrowUpDown } from 'lucide-react';
 import { useAudioExtractor } from '@/hooks/useAudioExtractor';
 import { useHistory } from '@/hooks/useHistory';
 import { transcribeAudio, TranscriptionResponse } from '@/actions/transcribe';
@@ -36,6 +36,7 @@ export default function Home() {
   } = useHistory<SubtitleSegment[]>([]);
 
   const [selectedFont, setSelectedFont] = useState(GOOGLE_FONTS[0].family);
+  const [globalYPosition, setGlobalYPosition] = useState(80); // Default 80% from top
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [showRaw, setShowRaw] = useState(false);
 
@@ -251,7 +252,8 @@ export default function Home() {
                           videoUrl: videoUrl,
                           segments: segments,
                           fontFamily: selectedFont,
-                          videoDurationSeconds: videoMetadata?.durationInSeconds
+                          videoDurationSeconds: videoMetadata?.durationInSeconds,
+                          globalYPosition: globalYPosition
                         }}
                         // Calculate *visual* duration based on cuts
                         durationInFrames={(() => {
@@ -288,8 +290,26 @@ export default function Home() {
                     {/* Placeholder for future settings (e.g. Size, Position) */}
                     <div style={{ width: 1, background: 'var(--border-subtle)', alignSelf: 'stretch' }} />
 
-                    <div style={{ flex: 1, opacity: 0.5, display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 100, border: '1px dashed var(--border-subtle)', borderRadius: 8 }}>
-                      <p>More visual settings coming soon...</p>
+                    {/* Position Settings */}
+                    <div style={{ flex: 1 }}>
+                      <div style={{ marginBottom: 16, fontSize: '1rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <ArrowUpDown size={18} /> Vertical Position
+                      </div>
+                      <div style={{ padding: '0 8px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8, fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                          <span>Top (0%)</span>
+                          <span>{globalYPosition}%</span>
+                          <span>Bottom (100%)</span>
+                        </div>
+                        <input
+                          type="range"
+                          min="0"
+                          max="100"
+                          value={globalYPosition}
+                          onChange={(e) => setGlobalYPosition(Number(e.target.value))}
+                          style={{ width: '100%', cursor: 'pointer', accentColor: 'var(--accent-primary)' }}
+                        />
+                      </div>
                     </div>
                   </div>
                 </div>
