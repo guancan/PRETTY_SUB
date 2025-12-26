@@ -372,11 +372,13 @@ export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: E
             const segUpdates = updates.get(item.segmentId)!;
 
             if (item.originalWordIndex !== undefined) {
-                if (item.type === 'gap') {
-                    segUpdates.set(item.originalWordIndex, { ...segUpdates.get(item.originalWordIndex), isGapCut: false });
-                } else {
-                    segUpdates.set(item.originalWordIndex, { ...segUpdates.get(item.originalWordIndex), isCut: false });
-                }
+                // Unified Restore: Clear Cut, Deleted, and GapCut
+                const restoration = {
+                    isDeleted: false,
+                    isCut: false,
+                    isGapCut: false
+                };
+                segUpdates.set(item.originalWordIndex, { ...segUpdates.get(item.originalWordIndex), ...restoration });
             }
         });
 
@@ -469,7 +471,7 @@ export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: E
                         </button>
                     )}
                     <button onClick={restoreSelected} className="btn-editor-action vertical restore">
-                        <Check size={14} /> <span>Restore Cut</span>
+                        <Check size={14} /> <span>Restore</span>
                     </button>
 
                     <div style={{ height: 1, background: 'rgba(255,255,255,0.05)', margin: '2px 0' }} />
