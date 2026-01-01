@@ -8,7 +8,7 @@
 - 视频导入与预览：上传视频、解析元数据、生成预览 URL。
 - 音频抽取：浏览器端加载 ffmpeg.wasm，提取音频 Blob。
 - 语音转写：将音频发送至 UniAPI Whisper-1，获取逐词时间戳。
-- 分段：按字符数、时长、标点规则将词组装为字幕段。
+- 分段：优先调用 AI 分段优化（可用时），否则使用规则分段。
 - 字幕编辑：对词/静音段进行删除、剪切、上色、位置调整，支持撤销重做。
 - 剪辑预览：根据剪切结果生成可播放片段，在 Remotion 中拼接并叠字幕。
 
@@ -69,7 +69,9 @@ flowchart LR
 - `src/app/page.tsx`：流程编排与页面状态，驱动上传、转写、分段、编辑与预览。
 - `src/hooks/useAudioExtractor.ts`：ffmpeg.wasm 加载与音频抽取。
 - `src/actions/transcribe.ts`：服务端 action，负责调用 UniAPI 与结果解析。
+- `src/actions/aiSegment.ts`：服务端 action，通过 UniAPI 转发的 @google/genai SDK 生成优化分段区间。
 - `src/lib/segmentation.ts`：词到字幕段的分段策略实现。
+- `src/lib/prompts/segmentationPrompt.ts`：AI 分段提示词模板。
 - `src/components/SubtitleEditor.tsx`：编辑器 UI 与交互规则。
 - `src/lib/timelineUtils.ts`：剪切区间合并与可播放时间线生成。
 - `src/remotion/MainComposition.tsx` / `src/remotion/DynamicCaptions.tsx`：预览渲染与动态字幕。
@@ -141,6 +143,22 @@ export interface TimeRange {
 - `src/app/page.tsx`：计算预览总时长与 seek 映射（通过 `mapOriginalToPlayableTime`）。
 - `src/remotion/MainComposition.tsx`：将 `TimeRange[]` 映射为 Remotion `Series` 序列。
 
+#### 分段规则配置
+定义于 `src/lib/segmentation.ts`，由前端配置并传入 `segmentWords`。
+
+```ts
+export interface SegmentationOptions {
+  maxCharsPerLine?: number;
+  maxDurationSeconds?: number;
+  punctuationSplit?: boolean;
+  punctuationMinChars?: number;
+}
+```
+
+使用位置：
+- `src/app/page.tsx`：作为页面状态，由“分段规则”弹窗配置与展示。
+- `src/lib/segmentation.ts`：分段逻辑读取该配置并应用。
+
 ### 编辑器 UI 中间结构
 由 `src/components/SubtitleEditor.tsx` 从 `SubtitleSegment[]` 计算生成，仅用于展示/选择，不持久化。
 
@@ -208,8 +226,10 @@ interface UIItem {
 - 返回带词级时间戳的 `TranscriptionResponse`。
 
 4) 分段
-- `segmentWords(words, options)` 将词按字符数、时长、标点等规则切分成 `SubtitleSegment[]`。
-- 默认阈值：`maxCharsPerLine = 30`，`maxDurationSeconds = 3.0`（可通过 `options` 覆盖）。
+- 优先调用 AI 分段：传入词级时间戳与规则参考信息，返回更自然的分段区间；失败或不可用时回退规则分段。
+- 规则分段：`segmentWords(words, options)` 将词按字符数、时长、标点等规则切分成 `SubtitleSegment[]`。
+- 规则阈值来自前端可配置项（见“分段规则配置”），在生成字幕与重新分段时均生效。
+- 默认阈值：`maxCharsPerLine = 25`，`maxDurationSeconds = 3.0`（可通过 `options` 覆盖）。
 - 计数方式：`newLength = 当前累计字符 + 1(空格) + 当前词长度`；`duration = 当前词 end - 当前段 start`。
 - 触发切分条件（任一满足即切分）：
   - `newLength > MAX_CHARS`
@@ -240,7 +260,9 @@ interface UIItem {
 - `selectedFont`, `globalYPosition`
 
 ## 配置
-- `UNIAPI_KEY`（见 `env.example`）用于转写。
+- `UNIAPI_KEY`（见 `env.example`）用于转写与 AI 分段转发。
+- `GEMINI_SEGMENTATION_MODEL` 用于 AI 分段模型选择（可选）。
+- `UNIAPI_GEMINI_BASE_URL` 用于 UniAPI Gemini 转发地址（@google/genai SDK，默认已配置）。
 - `next.config.ts` 设置 COOP/COEP，确保 wasm 隔离环境。
 
 ## 现状与限制

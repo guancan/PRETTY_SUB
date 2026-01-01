@@ -12,6 +12,7 @@
     "@ffmpeg/core": "^0.12.10",
     "@ffmpeg/ffmpeg": "^0.12.15",
     "@ffmpeg/util": "^0.12.2",
+    "@google/genai": "^0.10.0",
     "@remotion/player": "^4.0.395",
     "framer-motion": "^12.23.26",
     "lucide-react": "^0.562.0",

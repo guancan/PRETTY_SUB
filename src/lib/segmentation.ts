@@ -1,4 +1,4 @@
-import { TranscriptionWord } from '@/actions/transcribe';
+import type { TranscriptionWord } from '@/actions/transcribe';
 
 export interface SegmentWord extends TranscriptionWord {
     // Enhanced properties for the editor
@@ -20,23 +20,48 @@ export interface SubtitleSegment {
 export interface SegmentationOptions {
     maxCharsPerLine?: number;
     maxDurationSeconds?: number;
+    punctuationSplit?: boolean;
+    punctuationMinChars?: number;
 }
 
+export const DEFAULT_SEGMENTATION_OPTIONS: Required<SegmentationOptions> = {
+    maxCharsPerLine: 25,
+    maxDurationSeconds: 3.0,
+    punctuationSplit: true,
+    punctuationMinChars: 10,
+};
+
+export interface SegmentRange {
+    startIndex: number;
+    endIndex: number;
+}
+
+export const normalizeSegmentationOptions = (input: Partial<SegmentationOptions>): SegmentationOptions => {
+    return {
+        maxCharsPerLine: Math.max(1, input.maxCharsPerLine ?? DEFAULT_SEGMENTATION_OPTIONS.maxCharsPerLine),
+        maxDurationSeconds: Math.max(0.1, input.maxDurationSeconds ?? DEFAULT_SEGMENTATION_OPTIONS.maxDurationSeconds),
+        punctuationSplit: input.punctuationSplit ?? DEFAULT_SEGMENTATION_OPTIONS.punctuationSplit,
+        punctuationMinChars: Math.max(1, input.punctuationMinChars ?? DEFAULT_SEGMENTATION_OPTIONS.punctuationMinChars),
+    };
+};
+
+// Helper to init a SegmentWord with default editor flags.
+const toSegmentWord = (w: TranscriptionWord): SegmentWord => ({
+    ...w,
+    color: 0,
+    isDeleted: false
+});
+
 export function segmentWords(words: TranscriptionWord[], options: SegmentationOptions = {}): SubtitleSegment[] {
-    const MAX_CHARS = options.maxCharsPerLine || 30; // 默认每行最大字符数
-    const MAX_DURATION = options.maxDurationSeconds || 3.0; // 默认每段最大时长
+    const MAX_CHARS = options.maxCharsPerLine ?? DEFAULT_SEGMENTATION_OPTIONS.maxCharsPerLine; // 默认每行最大字符数
+    const MAX_DURATION = options.maxDurationSeconds ?? DEFAULT_SEGMENTATION_OPTIONS.maxDurationSeconds; // 默认每段最大时长
+    const PUNCT_SPLIT = options.punctuationSplit ?? DEFAULT_SEGMENTATION_OPTIONS.punctuationSplit;
+    const PUNCT_MIN_CHARS = options.punctuationMinChars ?? DEFAULT_SEGMENTATION_OPTIONS.punctuationMinChars;
 
     const segments: SubtitleSegment[] = [];
     let currentWords: SegmentWord[] = [];
     let currentChars = 0;
     let currentStartTime = 0;
-
-    // Helper to init a SegmentWord
-    const toSegmentWord = (w: TranscriptionWord): SegmentWord => ({
-        ...w,
-        color: 0, // Default color 0 (white/standard)
-        isDeleted: false
-    });
 
     words.forEach((word, index) => {
         // 1. Initialize first word of a segment
@@ -61,7 +86,7 @@ export function segmentWords(words: TranscriptionWord[], options: SegmentationOp
         const shouldSplit =
             newLength > MAX_CHARS ||
             duration > MAX_DURATION ||
-            (word.word.match(/[.!?。！？]$/) && newLength > 10); // End of sentence punctuation and reasonable length
+            (PUNCT_SPLIT && word.word.match(/[.!?。！？]$/) && newLength > PUNCT_MIN_CHARS); // End of sentence punctuation and reasonable length
 
         if (shouldSplit) {
             // Push current segment
@@ -95,4 +120,19 @@ export function segmentWords(words: TranscriptionWord[], options: SegmentationOp
     }
 
     return segments;
+}
+
+export function buildSegmentsFromRanges(words: TranscriptionWord[], ranges: SegmentRange[]): SubtitleSegment[] {
+    if (ranges.length === 0) return [];
+
+    return ranges
+        .map((range) => words.slice(range.startIndex, range.endIndex + 1))
+        .filter((slice) => slice.length > 0)
+        .map((slice) => ({
+            id: crypto.randomUUID(),
+            text: slice.map((w) => w.word).join(' ').trim(),
+            start: slice[0].start,
+            end: slice[slice.length - 1].end,
+            words: slice.map(toSegmentWord)
+        }));
 }

@@ -4,16 +4,20 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import { Eye, List, Type, UploadCloud, FileAudio, FileText, Loader2, ArrowUpDown } from 'lucide-react';
 import { useAudioExtractor } from '@/hooks/useAudioExtractor';
 import { useHistory } from '@/hooks/useHistory';
+import { aiSegmentWords } from '@/actions/aiSegment';
 import { transcribeAudio, TranscriptionResponse } from '@/actions/transcribe';
-import { segmentWords, SubtitleSegment } from '@/lib/segmentation';
+import { buildSegmentsFromRanges, DEFAULT_SEGMENTATION_OPTIONS, normalizeSegmentationOptions, SegmentationOptions, segmentWords, SubtitleSegment } from '@/lib/segmentation';
 import SubtitleEditor from '@/components/SubtitleEditor';
 import FontSelector from '@/components/FontSelector';
+import SegmentationRulesModal from '@/components/SegmentationRulesModal';
 import { GOOGLE_FONTS, getGoogleFontUrl } from '@/lib/fonts';
 import Logger from '@/lib/logger';
 import { Player, PlayerRef } from '@remotion/player';
 import { getVideoMetadata } from '@/lib/videoUtils';
 import { MainComposition } from '@/remotion/MainComposition';
 import { calculatePlayableClips, calculateTotalDuration, mapOriginalToPlayableTime } from '@/lib/timelineUtils';
+
+const SEGMENTATION_RULES_STORAGE_KEY = 'pretty_sub.segmentation_rules.v1';
 
 export default function Home() {
   const [videoFile, setVideoFile] = useState<File | null>(null);
@@ -22,6 +26,10 @@ export default function Home() {
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
   const [status, setStatus] = useState<string>('');
   const [transcription, setTranscription] = useState<TranscriptionResponse | null>(null);
+  const [segmentationOptions, setSegmentationOptions] = useState<SegmentationOptions>(DEFAULT_SEGMENTATION_OPTIONS);
+  const [isRulesOpen, setIsRulesOpen] = useState(false);
+  const [toast, setToast] = useState<{ message: string; tone: 'info' | 'success' } | null>(null);
+  const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Use History Hook for Segments (Undo/Redo)
   const {
@@ -43,6 +51,53 @@ export default function Home() {
   const playerRef = useRef<PlayerRef>(null);
 
   const { extractAudio, isReady, load, progress } = useAudioExtractor();
+
+  const maxChars = segmentationOptions.maxCharsPerLine ?? DEFAULT_SEGMENTATION_OPTIONS.maxCharsPerLine;
+  const maxDuration = segmentationOptions.maxDurationSeconds ?? DEFAULT_SEGMENTATION_OPTIONS.maxDurationSeconds;
+  const punctuationSplit = segmentationOptions.punctuationSplit ?? DEFAULT_SEGMENTATION_OPTIONS.punctuationSplit;
+  const punctuationMinChars = segmentationOptions.punctuationMinChars ?? DEFAULT_SEGMENTATION_OPTIONS.punctuationMinChars;
+  const segmentationSummary = `${maxChars}字 / ${maxDuration}s / ${punctuationSplit ? `标点>${punctuationMinChars}字` : '标点关闭'}`;
+
+  const showToast = (message: string, tone: 'info' | 'success' = 'info') => {
+    setToast({ message, tone });
+    if (toastTimeoutRef.current) {
+      clearTimeout(toastTimeoutRef.current);
+    }
+    toastTimeoutRef.current = setTimeout(() => {
+      setToast(null);
+      toastTimeoutRef.current = null;
+    }, 2800);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (toastTimeoutRef.current) {
+        clearTimeout(toastTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(SEGMENTATION_RULES_STORAGE_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as Partial<SegmentationOptions>;
+      setSegmentationOptions(normalizeSegmentationOptions(parsed));
+    } catch (error) {
+      Logger.warn('Failed to read segmentation rules from storage', error);
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(
+        SEGMENTATION_RULES_STORAGE_KEY,
+        JSON.stringify(normalizeSegmentationOptions(segmentationOptions))
+      );
+    } catch (error) {
+      Logger.warn('Failed to persist segmentation rules to storage', error);
+    }
+  }, [segmentationOptions]);
 
   const handleFileSelect = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -112,6 +167,25 @@ export default function Home() {
     }
   };
 
+  const generateSegments = async (words: TranscriptionResponse['words']) => {
+    try {
+      const aiResult = await aiSegmentWords({
+        words,
+        options: segmentationOptions
+      });
+
+      if (aiResult?.ranges?.length) {
+        Logger.info('AI segmentation applied', { model: aiResult.model, ranges: aiResult.ranges.length });
+        showToast(`AI 分段已应用（${aiResult.model}）`, 'success');
+        return buildSegmentsFromRanges(words, aiResult.ranges);
+      }
+    } catch (error) {
+      Logger.warn('AI segmentation failed, fallback to rules', error);
+    }
+
+    return segmentWords(words, segmentationOptions);
+  };
+
   const handleTranscribe = async () => {
     if (!audioBlob) return;
     setIsTranscribing(true);
@@ -124,7 +198,8 @@ export default function Home() {
       const result = await transcribeAudio(formData);
       if (result) {
         setTranscription(result);
-        const segs = segmentWords(result.words, { maxCharsPerLine: 25 });
+        setStatus('Generating segments...');
+        const segs = await generateSegments(result.words);
         setSegments(segs);
         setStatus('Transcription & Segmentation complete!');
         Logger.info('Transcription result', result);
@@ -135,6 +210,16 @@ export default function Home() {
     } finally {
       setIsTranscribing(false);
     }
+  };
+
+  const handleResegment = async () => {
+    if (!transcription) return;
+    const confirmed = window.confirm('重新生成分段会覆盖当前编辑内容（剪切/删除/颜色/位置）。是否继续？');
+    if (!confirmed) return;
+    setStatus('Regenerating segments...');
+    const segs = await generateSegments(transcription.words);
+    setSegments(segs);
+    setStatus('Segmentation updated.');
   };
 
   return (
@@ -208,9 +293,20 @@ export default function Home() {
                     {transcription && <FileText size={16} color="var(--accent-primary)" />}
                   </div>
                   {!transcription ? (
-                    <button onClick={handleTranscribe} className="btn-primary" disabled={!audioBlob || isTranscribing} style={{ width: '100%' }}>
-                      {isTranscribing ? 'Processing...' : 'Generate Subtitles'}
-                    </button>
+                    <>
+                      <button onClick={handleTranscribe} className="btn-primary" disabled={!audioBlob || isTranscribing} style={{ width: '100%' }}>
+                        {isTranscribing ? 'Processing...' : 'Generate Subtitles'}
+                      </button>
+                      <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>规则：{segmentationSummary}</span>
+                        <button
+                          onClick={() => setIsRulesOpen(true)}
+                          style={{ background: 'none', border: 'none', color: 'var(--accent-primary)', cursor: 'pointer', fontSize: '0.75rem' }}
+                        >
+                          查看/编辑
+                        </button>
+                      </div>
+                    </>
                   ) : (
                     <div style={{ fontSize: '0.8rem', color: '#10b981' }}>{segments.length} segments</div>
                   )}
@@ -221,6 +317,22 @@ export default function Home() {
             {/* Split View Editor */}
             {transcription && videoUrl && (
               <>
+                <div className="glass-panel" style={{ padding: 16, marginTop: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                  <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                    分段规则：<span style={{ color: 'var(--text-primary)' }}>{segmentationSummary}</span>
+                  </div>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button
+                      onClick={() => setIsRulesOpen(true)}
+                      style={{ background: 'none', border: '1px solid var(--border-subtle)', color: 'var(--text-secondary)', padding: '6px 10px', borderRadius: 8, cursor: 'pointer' }}
+                    >
+                      查看/编辑
+                    </button>
+                    <button onClick={handleResegment} className="btn-primary" style={{ padding: '6px 12px', fontSize: '0.85rem' }}>
+                      重新生成分段
+                    </button>
+                  </div>
+                </div>
                 <div style={{ marginTop: 16, display: 'grid', gridTemplateColumns: 'minmax(400px, 1fr) 1fr', gap: 24, height: '70vh' }}>
 
                   {/* Left: Editor */}
@@ -318,6 +430,33 @@ export default function Home() {
           </div>
         )}
       </div>
+
+      {toast && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 20,
+            right: 20,
+            background: 'rgba(20,20,20,0.92)',
+            border: `1px solid ${toast.tone === 'success' ? 'rgba(34,197,94,0.6)' : 'rgba(255,255,255,0.12)'}`,
+            color: 'var(--text-primary)',
+            padding: '10px 14px',
+            borderRadius: 12,
+            boxShadow: '0 12px 28px rgba(0,0,0,0.35)',
+            fontSize: '0.85rem',
+            zIndex: 3000,
+          }}
+        >
+          {toast.message}
+        </div>
+      )}
+
+      <SegmentationRulesModal
+        isOpen={isRulesOpen}
+        options={segmentationOptions}
+        onClose={() => setIsRulesOpen(false)}
+        onSave={(next) => setSegmentationOptions(next)}
+      />
     </main >
   )
 }
