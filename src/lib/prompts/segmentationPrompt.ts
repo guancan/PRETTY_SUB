@@ -16,21 +16,34 @@ export const buildSegmentationPrompt = (params: {
     .map((w, i) => `${i}|${w.word}|${w.start.toFixed(3)}|${w.end.toFixed(3)}`)
     .join('\n');
 
-  return `你是字幕分段引擎。你的任务是：基于词级时间戳与分段规则，输出更符合自然语言断句的分段结果。
+  return `You are a subtitle segmentation engine. Your task is to output segmentation results based on word-level timestamps and segmentation rules.
 
-分段规则（软约束，尽量遵守）：
-- 单段最大字符数：${maxChars}
-- 单段最大时长（秒）：${maxDuration}
-- 是否允许标点触发切分：${punctuationSplit ? '是' : '否'}
-- 标点触发的最小字符数：${punctuationMinChars}
+Segmentation Rules (soft constraints, try to follow):
+- Maximum characters per segment: ${maxChars}
+- Maximum duration per segment (seconds): ${maxDuration}
+- Allow punctuation-triggered splits: ${punctuationSplit ? 'Yes' : 'No'}
+- Minimum characters for punctuation split: ${punctuationMinChars}
 
-要求：
-- 只输出分段的索引范围，不要改写或新增词。
-- 使用连续的词索引区间，必须覆盖全部词（从 0 到 N-1）。
-- 分段应尽量符合自然语言语义与标点边界。
-- 不要遗漏或重复任何词。
+Requirements:
+- Output ONLY the index ranges for segments, do not rewrite or add words.
+- Use continuous word index ranges that must cover ALL words (from 0 to N-1).
+- Segments should follow natural language semantics and punctuation boundaries.
+- Do not omit or duplicate any word.
+- You must respond with a valid JSON object (see example below).
 
-词列表（格式：index|word|start|end）：
+Expected JSON format:
+{
+  "segments": [
+    { "startIndex": 0, "endIndex": 5 },
+    { "startIndex": 6, "endIndex": 12 }
+  ]
+}
+
+Where:
+- startIndex: the starting word index (inclusive, 0-based)
+- endIndex: the ending word index (inclusive)
+
+Word list (format: index|word|start|end):
 ${wordLines}
 `;
 };
