@@ -1,0 +1,89 @@
+interface FileSuggestion {
+  show: boolean;
+  type: 'success' | 'warning' | 'error';
+  message: string;
+}
+
+export const CONFIG = {
+  format: {
+    recommended: ['mp4', 'webm', 'mov'],
+    acceptable: ['avi', 'mkv', 'flv', 'wmv'],
+  },
+  fileSize: {
+    recommended: 200 * 1024 * 1024,   // 200MB
+    acceptable: 2 * 1024 * 1024 * 1024, // 2GB
+  },
+  duration: {
+    recommended: 15 * 60,   // 15 minutes
+    acceptable: 30 * 60,    // 30 minutes
+  },
+};
+
+export const getFileExtension = (filename: string): string => {
+  return filename.toLowerCase().split('.').pop() || '';
+};
+
+export const formatFileSize = (bytes: number): string => {
+  const mb = bytes / (1024 * 1024);
+  if (mb < 1) {
+    return `${(bytes / 1024).toFixed(1)} MB`;
+  }
+  return `${mb.toFixed(0)} MB`;
+};
+
+export const formatDuration = (seconds: number): string => {
+  const minutes = Math.floor(seconds / 60);
+  return `${minutes}分钟`;
+};
+
+/**
+ * Check if file exceeds limits or needs suggestion
+ */
+export const getFileSuggestion = (file: File, durationSeconds: number): FileSuggestion => {
+  const sizeMB = file.size / (1024 * 1024);
+  const durationMin = Math.floor(durationSeconds / 60);
+  const ext = getFileExtension(file.name);
+
+  // Hard rejection - file size
+  if (file.size > CONFIG.fileSize.acceptable) {
+    return {
+      show: true,
+      type: 'error',
+      message: `文件过大（最大${formatFileSize(CONFIG.fileSize.acceptable)}）`
+    };
+  }
+
+  // Hard rejection - duration
+  if (durationSeconds > CONFIG.duration.acceptable) {
+    return {
+      show: true,
+      type: 'error',
+      message: `时长超限（最大${formatDuration(CONFIG.duration.acceptable)}）`
+    };
+  }
+
+  // Check for suggestions
+  const issues: string[] = [];
+
+  if (file.size > CONFIG.fileSize.recommended) {
+    issues.push(`推荐 < ${formatFileSize(CONFIG.fileSize.recommended)}（当前${formatFileSize(file.size)}）`);
+  }
+
+  if (durationSeconds > CONFIG.duration.recommended) {
+    issues.push(`推荐 5-${formatDuration(CONFIG.duration.recommended)}（当前${durationMin}分钟）`);
+  }
+
+  if (!CONFIG.format.recommended.includes(ext)) {
+    issues.push('推荐 MP4 格式');
+  }
+
+  if (issues.length > 0) {
+    return {
+      show: true,
+      type: 'warning',
+      message: `推荐 ${issues.join(', ')}，当前文件处理时间会稍长一些`
+    };
+  }
+
+  return { show: false, type: 'success', message: '' };
+};

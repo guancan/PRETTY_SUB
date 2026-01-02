@@ -18,6 +18,7 @@ import { GOOGLE_FONTS, getGoogleFontUrl } from '@/lib/fonts';
 import Logger from '@/lib/logger';
 import { Player, PlayerRef } from '@remotion/player';
 import { getVideoMetadata, formatFileSize, formatDuration } from '@/lib/videoUtils';
+import { getFileSuggestion } from '@/lib/videoValidation';
 import { MainComposition } from '@/remotion/MainComposition';
 import { calculatePlayableClips, calculateTotalDuration, mapOriginalToPlayableTime } from '@/lib/timelineUtils';
 
@@ -38,6 +39,7 @@ export default function Home() {
   const statusTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [errorDialog, setErrorDialog] = useState<{ title: string; message: string; clearFile?: boolean } | null>(null);
   const [showReuploadConfirm, setShowReuploadConfirm] = useState(false);
+  const [fileSuggestion, setFileSuggestion] = useState<{ show: boolean; type: 'success' | 'warning' | 'error'; message: string }>({ show: false, type: 'success', message: '' });
 
   // Use History Hook for Segments (Undo/Redo)
   const {
@@ -114,45 +116,75 @@ export default function Home() {
 
   const handleFileSelect = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      setVideoFile(file);
-      const url = URL.createObjectURL(file);
-      setVideoUrl(url);
+    if (!file) return;
 
-      setAudioBlob(null);
-      setTranscription(null);
-      setSegments([]);
+    // Early validation: File size check (before metadata)
+    if (file.size > 2 * 1024 * 1024 * 1024) {
+      setErrorDialog({
+        title: '文件不符合要求',
+        message: `文件过大（${formatFileSize(file.size)}，最大 2GB）`,
+        clearFile: false
+      });
+      // Reset file input
+      e.target.value = '';
+      return;
+    }
 
-      try {
-        setStatus('Loading metadata...');
-        const meta = await getVideoMetadata(file);
-        setVideoMetadata(meta);
-        setStatus('Extracting audio...');
+    // Proceed with file upload
+    setVideoFile(file);
+    const url = URL.createObjectURL(file);
+    setVideoUrl(url);
 
-        // Auto extract audio
-        await load();
-        const blob = await extractAudio(file);
-        if (blob) {
-          setAudioBlob(blob);
-          setStatus('Audio extracted. Ready to generate subtitles.');
-          Logger.info('Audio blob created', { size: blob.size, type: blob.type });
-        } else {
-          setErrorDialog({
-            title: '音频提取失败',
-            message: '无法从视频中提取音频。请确保视频文件包含音频轨道，然后重试。',
-            clearFile: true
-          });
-          setStatus('Audio extraction failed.');
-        }
-      } catch (err) {
-        Logger.error('File processing failed', err);
+    setAudioBlob(null);
+    setTranscription(null);
+    setSegments([]);
+    setFileSuggestion({ show: false, type: 'success', message: '' });
+
+    try {
+      setStatus('Loading metadata...');
+      const meta = await getVideoMetadata(file);
+      setVideoMetadata(meta);
+
+      // Check file suggestion and hard limits (after metadata)
+      const suggestion = getFileSuggestion(file, meta.durationInSeconds);
+      setFileSuggestion(suggestion);
+
+      // Hard rejection based on duration
+      if (suggestion.type === 'error') {
         setErrorDialog({
-          title: '文件处理失败',
-          message: err instanceof Error ? err.message : '无法处理此视频文件。请尝试其他文件。',
+          title: '文件不符合要求',
+          message: suggestion.message,
           clearFile: true
         });
-        setStatus('Failed to process video.');
+        setStatus('File rejected.');
+        return; // Stop processing
       }
+
+      setStatus('Extracting audio...');
+
+      // Auto extract audio
+      await load();
+      const blob = await extractAudio(file);
+      if (blob) {
+        setAudioBlob(blob);
+        setStatus('Audio extracted. Ready to generate subtitles.');
+        Logger.info('Audio blob created', { size: blob.size, type: blob.type });
+      } else {
+        setErrorDialog({
+          title: '音频提取失败',
+          message: '无法从视频中提取音频。请确保视频文件包含音频轨道，然后重试。',
+          clearFile: true
+        });
+        setStatus('Audio extraction failed.');
+      }
+    } catch (err) {
+      Logger.error('File processing failed', err);
+      setErrorDialog({
+        title: '文件处理失败',
+        message: err instanceof Error ? err.message : '无法处理此视频文件。请尝试其他文件。',
+        clearFile: true
+      });
+      setStatus('Failed to process video.');
     }
   }, [load, extractAudio, setSegments]);
 
@@ -313,12 +345,16 @@ export default function Home() {
             borderRadius: 'var(--radius-md)',
             cursor: 'pointer'
           }}>
-            <input type="file" accept="video/*" onChange={handleFileSelect} hidden />
+            <input type="file" accept=".mp4,.webm,.mov,.avi,.mkv,.flv,.wmv,video/mp4,video/webm,video/quicktime,video/x-msvideo,video/x-matroska,video/x-flv" onChange={handleFileSelect} hidden />
             <div style={{ background: 'rgba(99, 102, 241, 0.1)', padding: 24, borderRadius: '50%', marginBottom: 16 }}>
               <UploadCloud size={48} color="var(--accent-primary)" />
             </div>
-            <h3 style={{ marginBottom: 8 }}>Upload Video</h3>
-            <p style={{ color: 'var(--text-secondary)' }}>Click to browse</p>
+            <h3 style={{ marginBottom: 8, fontWeight: 600 }}>Click to Upload Video</h3>
+            <div style={{ marginTop: 16, fontSize: '0.8rem', color: 'var(--text-secondary)', textAlign: 'center', lineHeight: 1.6 }}>
+              文件格式要求：MP4/AVI/MOV/MKV/FLV/WMV，不大于 2GB，30 分钟以内
+              <br />
+              推荐 15 分钟以内的 MP4
+            </div>
           </label>
         ) : (
           <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 24 }}>
@@ -454,6 +490,19 @@ export default function Home() {
                           '生成字幕'
                         )}
                       </button>
+
+                      {/* File suggestion message */}
+                      {!isTranscribing && fileSuggestion.show && (
+                        <div style={{
+                          marginTop: 12,
+                          fontSize: '0.8rem',
+                          color: fileSuggestion.type === 'warning' ? '#f59e0b' : '#ef4444',
+                          textAlign: 'center',
+                          lineHeight: 1.5
+                        }}>
+                          💡 {fileSuggestion.message}
+                        </div>
+                      )}
                     </>
                   ) : (
                     <div style={{ fontSize: '0.9rem', color: '#10b981', fontWeight: 500 }}>
