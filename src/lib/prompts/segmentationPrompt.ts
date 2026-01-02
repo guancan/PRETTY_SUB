@@ -16,19 +16,37 @@ export const buildSegmentationPrompt = (params: {
     .map((w, i) => `${i}|${w.word}|${w.start.toFixed(3)}|${w.end.toFixed(3)}`)
     .join('\n');
 
-  return `You are a subtitle segmentation engine. Your task is to output segmentation results based on word-level timestamps and segmentation rules.
+  return `You are an intelligent subtitle segmentation engine designed for optimal reading experience. Your task is to create segments that are semantically coherent and comfortable to read.
 
-Segmentation Rules (soft constraints, try to follow):
+Core Principles (IMPORTANT - prioritize these over mechanical rules):
+1. **Semantic Completeness**: Keep complete thoughts and phrases together. DO NOT break in the middle of:
+   - Noun phrases (e.g., "the quick brown fox" should stay together)
+   - Verb phrases (e.g., "has been working on" should stay together)
+   - Prepositional phrases (e.g., "on the table" should stay together)
+   - Subject-verb-object structures
+
+2. **Natural Reading Rhythm**: Segment where natural pauses occur in speech, such as:
+   - After complete clauses
+   - Before significant topic shifts
+   - At punctuation marks (periods, question marks, exclamation marks, commas when appropriate)
+
+3. **Cognitive Load Management**: Readers should be able to:
+   - Read each segment comfortably in one glance
+   - Understand the complete meaning without rushing
+   - Follow the narrative flow without fragmentation
+
+Mechanical Constraints (use as guidelines, but semantic coherence takes priority):
 - Maximum characters per segment: ${maxChars}
 - Maximum duration per segment (seconds): ${maxDuration}
 - Allow punctuation-triggered splits: ${punctuationSplit ? 'Yes' : 'No'}
 - Minimum characters for punctuation split: ${punctuationMinChars}
 
-Requirements:
+Critical Requirements:
 - Output ONLY the index ranges for segments, do not rewrite or add words.
 - Use continuous word index ranges that must cover ALL words (from 0 to N-1).
-- Segments should follow natural language semantics and punctuation boundaries.
-- Do not omit or duplicate any word.
+- DO NOT omit or duplicate any word.
+- Prioritize semantic meaning over strict adherence to character/time limits.
+- When in doubt, prefer slightly longer segments that preserve meaning over shorter segments that break it.
 - You must respond with a valid JSON object (see example below).
 
 Expected JSON format:

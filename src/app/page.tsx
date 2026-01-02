@@ -10,6 +10,7 @@ import { buildSegmentsFromRanges, DEFAULT_SEGMENTATION_OPTIONS, normalizeSegment
 import SubtitleEditor from '@/components/SubtitleEditor';
 import FontSelector from '@/components/FontSelector';
 import SegmentationRulesModal from '@/components/SegmentationRulesModal';
+import { SegmentationStatusBadge } from '@/components/SegmentationStatus';
 import { GOOGLE_FONTS, getGoogleFontUrl } from '@/lib/fonts';
 import Logger from '@/lib/logger';
 import { Player, PlayerRef } from '@remotion/player';
@@ -29,7 +30,9 @@ export default function Home() {
   const [segmentationOptions, setSegmentationOptions] = useState<SegmentationOptions>(DEFAULT_SEGMENTATION_OPTIONS);
   const [isRulesOpen, setIsRulesOpen] = useState(false);
   const [toast, setToast] = useState<{ message: string; tone: 'info' | 'success' } | null>(null);
+  const [segmentationStatus, setSegmentationStatus] = useState<'idle' | 'ai-started' | 'ai-processing' | 'ai-success' | 'ai-failed' | 'rules-processing' | 'rules-success'>('idle');
   const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const statusTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Use History Hook for Segments (Undo/Redo)
   const {
@@ -73,6 +76,9 @@ export default function Home() {
     return () => {
       if (toastTimeoutRef.current) {
         clearTimeout(toastTimeoutRef.current);
+      }
+      if (statusTimeoutRef.current) {
+        clearTimeout(statusTimeoutRef.current);
       }
     };
   }, []);
@@ -169,21 +175,39 @@ export default function Home() {
 
   const generateSegments = async (words: TranscriptionResponse['words']) => {
     try {
+      setSegmentationStatus('ai-started');
+      await new Promise(resolve => setTimeout(resolve, 300));
+      setSegmentationStatus('ai-processing');
+
       const aiResult = await aiSegmentWords({
         words,
         options: segmentationOptions
       });
 
       if (aiResult?.ranges?.length) {
+        setSegmentationStatus('ai-success');
         Logger.info('AI segmentation applied', { model: aiResult.model, ranges: aiResult.ranges.length });
         showToast(`AI 分段已应用（${aiResult.model}）`, 'success');
+
+        if (statusTimeoutRef.current) clearTimeout(statusTimeoutRef.current);
+        statusTimeoutRef.current = setTimeout(() => setSegmentationStatus('idle'), 3000);
+
         return buildSegmentsFromRanges(words, aiResult.ranges);
       }
     } catch (error) {
       Logger.warn('AI segmentation failed, fallback to rules', error);
+      setSegmentationStatus('ai-failed');
+      await new Promise(resolve => setTimeout(resolve, 800));
     }
 
-    return segmentWords(words, segmentationOptions);
+    setSegmentationStatus('rules-processing');
+    const result = segmentWords(words, segmentationOptions);
+    setSegmentationStatus('rules-success');
+
+    if (statusTimeoutRef.current) clearTimeout(statusTimeoutRef.current);
+    statusTimeoutRef.current = setTimeout(() => setSegmentationStatus('idle'), 3000);
+
+    return result;
   };
 
   const handleTranscribe = async () => {
@@ -220,6 +244,7 @@ export default function Home() {
     const segs = await generateSegments(transcription.words);
     setSegments(segs);
     setStatus('Segmentation updated.');
+    setSegmentationStatus('idle');
   };
 
   return (
@@ -306,6 +331,11 @@ export default function Home() {
                           查看/编辑
                         </button>
                       </div>
+                      {segmentationStatus !== 'idle' && (
+                        <div style={{ marginTop: 12 }}>
+                          <SegmentationStatusBadge status={segmentationStatus} />
+                        </div>
+                      )}
                     </>
                   ) : (
                     <div style={{ fontSize: '0.8rem', color: '#10b981' }}>{segments.length} segments</div>
@@ -321,7 +351,8 @@ export default function Home() {
                   <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
                     分段规则：<span style={{ color: 'var(--text-primary)' }}>{segmentationSummary}</span>
                   </div>
-                  <div style={{ display: 'flex', gap: 8 }}>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    {segmentationStatus !== 'idle' && <SegmentationStatusBadge status={segmentationStatus} />}
                     <button
                       onClick={() => setIsRulesOpen(true)}
                       style={{ background: 'none', border: '1px solid var(--border-subtle)', color: 'var(--text-secondary)', padding: '6px 10px', borderRadius: 8, cursor: 'pointer' }}
