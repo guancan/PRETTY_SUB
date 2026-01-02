@@ -46,10 +46,20 @@ export function useAudioExtractor() {
             Logger.info(`Starting audio extraction for ${videoFile.name}`);
             await ffmpeg.writeFile('input.mp4', await fetchFile(videoFile));
 
-            // Extract audio to mp3 (Whisper prefers mp3/wav) using efficient settings
-            // -q:a 2 (high quality variable bit rate)
-            // -map a (map audio only)
-            await ffmpeg.exec(['-i', 'input.mp4', '-map', '0:a', '-acodec', 'libmp3lame', '-q:a', '2', 'output.mp3']);
+            // Extract audio optimized for Whisper speech recognition
+            // -ac 1: Convert to mono (single channel)
+            // -ar 16000: 16kHz sample rate (Whisper's native rate)
+            // -b:a 64k: 64 kbps constant bitrate (sufficient for speech)
+            // -map 0:a: Extract audio track only
+            await ffmpeg.exec([
+                '-i', 'input.mp4',
+                '-map', '0:a',
+                '-acodec', 'libmp3lame',
+                '-ac', '1',
+                '-ar', '16000',
+                '-b:a', '64k',
+                'output.mp3'
+            ]);
 
             const data = await ffmpeg.readFile('output.mp3');
             const blob = new Blob([data as any], { type: 'audio/mp3' });

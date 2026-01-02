@@ -2,7 +2,7 @@ import './globals.css'
 import type { Metadata } from 'next'
 
 export const metadata: Metadata = {
-  title: 'Beautyful_Sub | AI Video Editor',
+  title: 'PRETTY SUB | AI Video Editor',
   description: 'Create stunning subtitled videos with AI.',
 }
 

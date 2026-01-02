@@ -19,6 +19,11 @@ const nextConfig: NextConfig = {
     ];
   },
   reactCompiler: true,
+  experimental: {
+    serverActions: {
+      bodySizeLimit: '30mb', // Support audio files from up to 1 hour videos (optimized: 64kbps, mono, 16kHz)
+    },
+  },
 };
 
 export default nextConfig;
