@@ -1,5 +1,6 @@
 import React from 'react';
 import { X, AlertCircle } from 'lucide-react';
+import { useLanguage } from '@/contexts/LanguageContext';
 
 interface ErrorDialogProps {
   isOpen: boolean;
@@ -9,6 +10,8 @@ interface ErrorDialogProps {
 }
 
 export default function ErrorDialog({ isOpen, title, message, onClose }: ErrorDialogProps) {
+  const { t } = useLanguage();
+
   if (!isOpen) return null;
 
   return (
@@ -72,7 +75,7 @@ export default function ErrorDialog({ isOpen, title, message, onClose }: ErrorDi
             className="btn-primary"
             style={{ padding: '8px 20px', fontSize: '0.9rem' }}
           >
-            知道了
+            {t('dialogs.error.ok')}
           </button>
         </div>
       </div>

@@ -3,10 +3,10 @@
 import { useEffect, useState } from 'react';
 
 interface AiProcessingLoaderProps {
-  text?: string;
+  text: string; // Make text required to ensure translations are always passed
 }
 
-export default function AiProcessingLoader({ text = 'AI 处理中' }: AiProcessingLoaderProps) {
+export default function AiProcessingLoader({ text }: AiProcessingLoaderProps) {
   const [activeIndex, setActiveIndex] = useState(0);
 
   useEffect(() => {

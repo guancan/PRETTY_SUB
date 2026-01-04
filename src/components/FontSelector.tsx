@@ -1,6 +1,7 @@
 import React from 'react';
 import { GOOGLE_FONTS } from '@/lib/fonts';
 import { Type } from 'lucide-react';
+import { useLanguage } from '@/contexts/LanguageContext';
 
 interface FontSelectorProps {
     currentFont: string;
@@ -8,6 +9,8 @@ interface FontSelectorProps {
 }
 
 export default function FontSelector({ currentFont, onFontChange }: FontSelectorProps) {
+    const { t } = useLanguage();
+
     return (
         <div className="font-selector">
             <div style={{
@@ -20,7 +23,7 @@ export default function FontSelector({ currentFont, onFontChange }: FontSelector
                 fontWeight: 500
             }}>
                 <Type size={14} />
-                <span>Font Family</span>
+                <span>{t('fontSelector.title')}</span>
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 10 }}>

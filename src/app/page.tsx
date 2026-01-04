@@ -21,10 +21,13 @@ import { getVideoMetadata, formatFileSize, formatDuration } from '@/lib/videoUti
 import { getFileSuggestion } from '@/lib/videoValidation';
 import { MainComposition } from '@/remotion/MainComposition';
 import { calculatePlayableClips, calculateTotalDuration, mapOriginalToPlayableTime } from '@/lib/timelineUtils';
+import { useLanguage } from '@/contexts/LanguageContext';
+import LanguageSwitcher from '@/components/LanguageSwitcher';
 
 const SEGMENTATION_RULES_STORAGE_KEY = 'pretty_sub.segmentation_rules.v1';
 
 export default function Home() {
+  const { t } = useLanguage();
   const [videoFile, setVideoFile] = useState<File | null>(null);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [videoMetadata, setVideoMetadata] = useState<{ width: number; height: number; durationInSeconds: number } | null>(null);
@@ -68,7 +71,13 @@ export default function Home() {
   const maxDuration = segmentationOptions.maxDurationSeconds ?? DEFAULT_SEGMENTATION_OPTIONS.maxDurationSeconds;
   const punctuationSplit = segmentationOptions.punctuationSplit ?? DEFAULT_SEGMENTATION_OPTIONS.punctuationSplit;
   const punctuationMinChars = segmentationOptions.punctuationMinChars ?? DEFAULT_SEGMENTATION_OPTIONS.punctuationMinChars;
-  const segmentationSummary = `${maxChars}字 / ${maxDuration}s / ${punctuationSplit ? `标点>${punctuationMinChars}字` : '标点关闭'}`;
+  const segmentationSummary = t('segmentation.summary', {
+    maxChars,
+    maxDuration,
+    punctuation: punctuationSplit
+      ? t('segmentation.punctuationEnabled', { minChars: punctuationMinChars })
+      : t('segmentation.punctuationDisabled')
+  });
 
   const showToast = (message: string, tone: 'info' | 'success' = 'info') => {
     setToast({ message, tone });
@@ -121,8 +130,8 @@ export default function Home() {
     // Early validation: File size check (before metadata)
     if (file.size > 2 * 1024 * 1024 * 1024) {
       setErrorDialog({
-        title: '文件不符合要求',
-        message: `文件过大（${formatFileSize(file.size)}，最大 2GB）`,
+        title: t('errors.fileTooLarge'),
+        message: t('errors.fileTooLargeMessage', { size: formatFileSize(file.size) }),
         clearFile: false
       });
       // Reset file input
@@ -141,52 +150,52 @@ export default function Home() {
     setFileSuggestion({ show: false, type: 'success', message: '' });
 
     try {
-      setStatus('Loading metadata...');
+      setStatus(t('metadata.loading'));
       const meta = await getVideoMetadata(file);
       setVideoMetadata(meta);
 
       // Check file suggestion and hard limits (after metadata)
-      const suggestion = getFileSuggestion(file, meta.durationInSeconds);
+      const suggestion = getFileSuggestion(file, meta.durationInSeconds, t);
       setFileSuggestion(suggestion);
 
       // Hard rejection based on duration
       if (suggestion.type === 'error') {
         setErrorDialog({
-          title: '文件不符合要求',
+          title: t('errors.fileTooLarge'),
           message: suggestion.message,
           clearFile: true
         });
-        setStatus('File rejected.');
+        setStatus(t('status.fileRejected'));
         return; // Stop processing
       }
 
-      setStatus('Extracting audio...');
+      setStatus(t('metadata.extracting'));
 
       // Auto extract audio
       await load();
       const blob = await extractAudio(file);
       if (blob) {
         setAudioBlob(blob);
-        setStatus('Audio extracted. Ready to generate subtitles.');
+        setStatus(t('metadata.ready'));
         Logger.info('Audio blob created', { size: blob.size, type: blob.type });
       } else {
         setErrorDialog({
-          title: '音频提取失败',
-          message: '无法从视频中提取音频。请确保视频文件包含音频轨道，然后重试。',
+          title: t('errors.audioExtractionFailed'),
+          message: t('errors.audioExtractionFailedMessage'),
           clearFile: true
         });
-        setStatus('Audio extraction failed.');
+        setStatus(t('status.audioExtractionFailed'));
       }
     } catch (err) {
       Logger.error('File processing failed', err);
       setErrorDialog({
-        title: '文件处理失败',
-        message: err instanceof Error ? err.message : '无法处理此视频文件。请尝试其他文件。',
+        title: t('errors.fileProcessingFailed'),
+        message: err instanceof Error ? err.message : t('errors.fileProcessingFailedMessage'),
         clearFile: true
       });
-      setStatus('Failed to process video.');
+      setStatus(t('status.processingFailed'));
     }
-  }, [load, extractAudio, setSegments]);
+  }, [load, extractAudio, setSegments, t]);
 
   // Undo/Redo Keyboard Shortcuts
   useEffect(() => {
@@ -244,7 +253,7 @@ export default function Home() {
       if (aiResult?.ranges?.length) {
         setSegmentationStatus('ai-success');
         Logger.info('AI segmentation applied', { model: aiResult.model, ranges: aiResult.ranges.length });
-        showToast(`AI 分段已应用（${aiResult.model}）`, 'success');
+        showToast(t('segmentation.aiApplied', { model: aiResult.model }), 'success');
 
         if (statusTimeoutRef.current) clearTimeout(statusTimeoutRef.current);
         statusTimeoutRef.current = setTimeout(() => setSegmentationStatus('idle'), 3000);
@@ -272,7 +281,7 @@ export default function Home() {
     setIsTranscribing(true);
     setSegments([]); // Clear segments to prevent showing editor during processing
     setProcessingStage('transcribing');
-    setStatus('Transcribing audio (this may take a moment)...');
+    setStatus(t('status.transcribing'));
 
     try {
       const formData = new FormData();
@@ -282,14 +291,14 @@ export default function Home() {
       if (result) {
         setTranscription(result);
         setProcessingStage('segmenting');
-        setStatus('Generating segments...');
+        setStatus(t('status.generatingSegments'));
         const segs = await generateSegments(result.words);
         setSegments(segs);
-        setStatus('Transcription & Segmentation complete!');
+        setStatus(t('status.transcriptionComplete'));
         Logger.info('Transcription result', result);
       }
     } catch (error) {
-      setStatus(`Transcription failed: ${error}`);
+      setStatus(t('status.transcriptionFailed', { error: String(error) }));
       Logger.error('Transcription failed', error);
     } finally {
       setIsTranscribing(false);
@@ -299,14 +308,14 @@ export default function Home() {
 
   const handleResegment = async () => {
     if (!transcription) return;
-    const confirmed = window.confirm('重新生成分段会覆盖当前编辑内容（剪切/删除/颜色/位置）。是否继续？');
+    const confirmed = window.confirm(t('transcription.confirmRegenerate'));
     if (!confirmed) return;
     setIsResegmenting(true);
-    setStatus('Regenerating segments...');
+    setStatus(t('status.regeneratingSegments'));
     try {
       const segs = await generateSegments(transcription.words);
       setSegments(segs);
-      setStatus('Segmentation updated.');
+      setStatus(t('status.segmentationUpdated'));
       setSegmentationStatus('idle');
     } finally {
       setIsResegmenting(false);
@@ -316,9 +325,12 @@ export default function Home() {
   return (
     <main className="container " style={{ minHeight: '100vh', flexDirection: 'column', paddingTop: 40, paddingBottom: 40, display: 'flex', alignItems: 'center' }}>
       <div style={{ textAlign: 'center', marginBottom: 32 }}>
-        <h1 style={{ marginBottom: 12 }}>PRETTY SUB</h1>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
+          <LanguageSwitcher />
+        </div>
+        <h1 style={{ marginBottom: 12 }}>{t('appName')}</h1>
         <p style={{ color: 'var(--text-secondary)', fontSize: '1.2rem' }}>
-          AI-Powered Video Editor with Dynamic Subtitles
+          {t('appDescription')}
         </p>
       </div>
 
@@ -349,11 +361,11 @@ export default function Home() {
             <div style={{ background: 'rgba(99, 102, 241, 0.1)', padding: 24, borderRadius: '50%', marginBottom: 16 }}>
               <UploadCloud size={48} color="var(--accent-primary)" />
             </div>
-            <h3 style={{ marginBottom: 8, fontWeight: 600 }}>Click to Upload Video</h3>
+            <h3 style={{ marginBottom: 8, fontWeight: 600 }}>{t('upload.title')}</h3>
             <div style={{ marginTop: 16, fontSize: '0.8rem', color: 'var(--text-secondary)', textAlign: 'center', lineHeight: 1.6 }}>
-              文件格式要求：MP4/AVI/MOV/MKV/FLV/WMV，不大于 2GB，30 分钟以内
+              {t('upload.requirements')}
               <br />
-              推荐 15 分钟以内的 MP4
+              {t('upload.recommended')}
             </div>
           </label>
         ) : (
@@ -382,7 +394,7 @@ export default function Home() {
                     e.currentTarget.style.background = 'none';
                   }}
                 >
-                  重新上传
+                  {t('upload.reupload')}
                 </button>
               </div>
 
@@ -419,7 +431,7 @@ export default function Home() {
                     animation: 'spin 1s linear infinite'
                   }} />
                   <span style={{ fontSize: '0.85rem', color: '#f59e0b', fontWeight: 500 }}>
-                    正在提取音频...
+                    {t('metadata.extracting')}
                   </span>
                 </div>
               )}
@@ -430,7 +442,7 @@ export default function Home() {
               <div style={{ display: 'flex', justifyContent: 'center', width: '60%', margin: '0 auto' }}>
                 <div className={`glass-panel ${transcription ? 'completed' : ''}`} style={{ padding: 24, borderColor: transcription ? 'var(--accent-primary)' : '', width: '100%' }}>
                   <div className="flex-center" style={{ justifyContent: 'space-between', marginBottom: 16 }}>
-                    <strong style={{ fontSize: '1.1rem' }}>获取字幕</strong>
+                    <strong style={{ fontSize: '1.1rem' }}>{t('transcription.title')}</strong>
                     {transcription && <FileText size={18} color="var(--accent-primary)" />}
                   </div>
 
@@ -440,7 +452,7 @@ export default function Home() {
                       <div style={{ marginBottom: 16, paddingBottom: 16, borderBottom: '1px solid var(--border-subtle)' }}>
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
                           <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-                            分段规则：<span style={{ color: 'var(--text-primary)' }}>{segmentationSummary}</span>
+                            {t('segmentation.rules')}：<span style={{ color: 'var(--text-primary)' }}>{segmentationSummary}</span>
                           </span>
                           <button
                             onClick={() => setIsRulesOpen(true)}
@@ -455,7 +467,7 @@ export default function Home() {
                               opacity: isTranscribing ? 0.5 : 1
                             }}
                           >
-                            查看/编辑
+                            {t('segmentation.viewEdit')}
                           </button>
                         </div>
                         {!isTranscribing && segmentationStatus !== 'idle' && (
@@ -482,12 +494,12 @@ export default function Home() {
                           <AiProcessingLoader
                             text={
                               processingStage === 'transcribing'
-                                ? 'AI 处理 1/2 - 字幕获取中'
-                                : 'AI 处理 2/2 - 分段优化中'
+                                ? t('transcription.processing1')
+                                : t('transcription.processing2')
                             }
                           />
                         ) : (
-                          '生成字幕'
+                          t('transcription.generate')
                         )}
                       </button>
 
@@ -506,7 +518,7 @@ export default function Home() {
                     </>
                   ) : (
                     <div style={{ fontSize: '0.9rem', color: '#10b981', fontWeight: 500 }}>
-                      已生成 {segments.length} 个字幕片段
+                      {t('transcription.generated', { count: segments.length })}
                     </div>
                   )}
                 </div>
@@ -519,13 +531,13 @@ export default function Home() {
                 <div className="glass-panel" style={{ padding: 16, marginTop: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
                     <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-                      分段规则：<span style={{ color: 'var(--text-primary)' }}>{segmentationSummary}</span>
+                      {t('segmentation.rules')}：<span style={{ color: 'var(--text-primary)' }}>{segmentationSummary}</span>
                     </span>
                     <button
                       onClick={() => setIsRulesOpen(true)}
                       style={{ background: 'none', border: 'none', color: 'var(--accent-primary)', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 500 }}
                     >
-                      查看/编辑
+                      {t('segmentation.viewEdit')}
                     </button>
                   </div>
                   <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -536,7 +548,7 @@ export default function Home() {
                       disabled={isResegmenting}
                       style={{ padding: '6px 12px', fontSize: '0.85rem', minWidth: isResegmenting ? '120px' : 'auto' }}
                     >
-                      {isResegmenting ? <AiProcessingLoader text="处理中" /> : '重新生成分段'}
+                      {isResegmenting ? <AiProcessingLoader text={t('transcription.regenerating')} /> : t('transcription.regenerate')}
                     </button>
                   </div>
                 </div>
@@ -546,7 +558,7 @@ export default function Home() {
                   <div className="glass-panel" style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
                     <div style={{ padding: '16px 24px', borderBottom: '1px solid var(--border-subtle)', background: 'rgba(0,0,0,0.2)' }}>
                       <h4 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <Type size={16} /> Subtitle Editor
+                        <Type size={16} /> {t('editor.title')}
                       </h4>
                     </div>
                     <div style={{ flex: 1, overflowY: 'auto', padding: 24 }}>
@@ -601,7 +613,7 @@ export default function Home() {
                     {/* Font Settings */}
                     <div style={{ flex: 1 }}>
                       <div style={{ marginBottom: 16, fontSize: '1rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <Type size={18} /> Subtitle Style
+                        <Type size={18} /> {t('style.title')}
                       </div>
                       <FontSelector currentFont={selectedFont} onFontChange={setSelectedFont} />
                     </div>
@@ -612,13 +624,13 @@ export default function Home() {
                     {/* Position Settings */}
                     <div style={{ flex: 1 }}>
                       <div style={{ marginBottom: 16, fontSize: '1rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <ArrowUpDown size={18} /> Vertical Position
+                        <ArrowUpDown size={18} /> {t('style.verticalPosition')}
                       </div>
                       <div style={{ padding: '0 8px' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8, fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-                          <span>Top (0%)</span>
+                          <span>{t('style.top')}</span>
                           <span>{globalYPosition}%</span>
-                          <span>Bottom (100%)</span>
+                          <span>{t('style.bottom')}</span>
                         </div>
                         <input
                           type="range"
@@ -679,10 +691,10 @@ export default function Home() {
 
       <ConfirmDialog
         isOpen={showReuploadConfirm}
-        title="重新上传视频"
-        message="重新上传将清理当前视频及所有处理结果（字幕、编辑记录等）。此操作不可撤销。"
-        confirmText="确认重新上传"
-        cancelText="取消"
+        title={t('dialogs.reuploadTitle')}
+        message={t('dialogs.reuploadMessage')}
+        confirmText={t('dialogs.confirm')}
+        cancelText={t('dialogs.cancel')}
         onConfirm={() => {
           clearVideoFile();
           setShowReuploadConfirm(false);

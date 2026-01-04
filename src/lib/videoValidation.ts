@@ -4,6 +4,9 @@ interface FileSuggestion {
   message: string;
 }
 
+// Translation function type
+type TranslationFunction = (key: string, params?: Record<string, string | number>) => string;
+
 export const CONFIG = {
   format: {
     recommended: ['mp4', 'webm', 'mov'],
@@ -31,15 +34,18 @@ export const formatFileSize = (bytes: number): string => {
   return `${mb.toFixed(0)} MB`;
 };
 
-export const formatDuration = (seconds: number): string => {
+export const formatDuration = (seconds: number, t?: TranslationFunction): string => {
   const minutes = Math.floor(seconds / 60);
+  if (t) {
+    return `${minutes} ${t('validation.minutes')}`;
+  }
   return `${minutes}分钟`;
 };
 
 /**
  * Check if file exceeds limits or needs suggestion
  */
-export const getFileSuggestion = (file: File, durationSeconds: number): FileSuggestion => {
+export const getFileSuggestion = (file: File, durationSeconds: number, t: TranslationFunction): FileSuggestion => {
   const sizeMB = file.size / (1024 * 1024);
   const durationMin = Math.floor(durationSeconds / 60);
   const ext = getFileExtension(file.name);
@@ -49,7 +55,7 @@ export const getFileSuggestion = (file: File, durationSeconds: number): FileSugg
     return {
       show: true,
       type: 'error',
-      message: `文件过大（最大${formatFileSize(CONFIG.fileSize.acceptable)}）`
+      message: t('validation.fileTooLarge', { size: formatFileSize(CONFIG.fileSize.acceptable) })
     };
   }
 
@@ -58,7 +64,7 @@ export const getFileSuggestion = (file: File, durationSeconds: number): FileSugg
     return {
       show: true,
       type: 'error',
-      message: `时长超限（最大${formatDuration(CONFIG.duration.acceptable)}）`
+      message: t('validation.durationTooLong', { duration: formatDuration(CONFIG.duration.acceptable, t) })
     };
   }
 
@@ -66,22 +72,28 @@ export const getFileSuggestion = (file: File, durationSeconds: number): FileSugg
   const issues: string[] = [];
 
   if (file.size > CONFIG.fileSize.recommended) {
-    issues.push(`推荐 < ${formatFileSize(CONFIG.fileSize.recommended)}（当前${formatFileSize(file.size)}）`);
+    issues.push(t('validation.sizeRecommendation', {
+      recommendedSize: formatFileSize(CONFIG.fileSize.recommended),
+      currentSize: formatFileSize(file.size)
+    }));
   }
 
   if (durationSeconds > CONFIG.duration.recommended) {
-    issues.push(`推荐 5-${formatDuration(CONFIG.duration.recommended)}（当前${durationMin}分钟）`);
+    issues.push(t('validation.durationRecommendation', {
+      recommendedDuration: formatDuration(CONFIG.duration.recommended, t),
+      currentDuration: durationMin
+    }));
   }
 
   if (!CONFIG.format.recommended.includes(ext)) {
-    issues.push('推荐 MP4 格式');
+    issues.push(t('validation.formatRecommendation'));
   }
 
   if (issues.length > 0) {
     return {
       show: true,
       type: 'warning',
-      message: `推荐 ${issues.join(', ')}，当前文件处理时间会稍长一些`
+      message: t('validation.processingTimeWarning', { recommendations: issues.join(', ') })
     };
   }
 

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { SegmentationOptions, DEFAULT_SEGMENTATION_OPTIONS } from '@/lib/segmentation';
 import { X } from 'lucide-react';
+import { useLanguage } from '@/contexts/LanguageContext';
 
 interface SegmentationRulesModalProps {
   isOpen: boolean;
@@ -21,6 +22,7 @@ const numberInputStyle: React.CSSProperties = {
 };
 
 export default function SegmentationRulesModal({ isOpen, options, onClose, onSave }: SegmentationRulesModalProps) {
+  const { t } = useLanguage();
   const [draft, setDraft] = useState<SegmentationOptions>(DEFAULT_SEGMENTATION_OPTIONS);
 
   useEffect(() => {
@@ -74,7 +76,7 @@ export default function SegmentationRulesModal({ isOpen, options, onClose, onSav
         onClick={(e) => e.stopPropagation()}
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-          <h3 style={{ margin: 0 }}>分段规则配置</h3>
+          <h3 style={{ margin: 0 }}>{t('segmentation.modal.title')}</h3>
           <button
             onClick={onClose}
             style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer' }}
@@ -86,7 +88,7 @@ export default function SegmentationRulesModal({ isOpen, options, onClose, onSav
 
         <div style={{ display: 'grid', gap: 16 }}>
           <div>
-            <label style={{ display: 'block', marginBottom: 6, fontWeight: 600 }}>单行最大字符数</label>
+            <label style={{ display: 'block', marginBottom: 6, fontWeight: 600 }}>{t('segmentation.modal.maxCharsLabel')}</label>
             <input
               type="number"
               min={5}
@@ -97,12 +99,12 @@ export default function SegmentationRulesModal({ isOpen, options, onClose, onSav
               style={numberInputStyle}
             />
             <div style={{ marginTop: 6, color: 'var(--text-secondary)', fontSize: '0.8rem' }}>
-              超过该长度会强制切分，建议范围 15-45。
+              {t('segmentation.modal.maxCharsHelp')}
             </div>
           </div>
 
           <div>
-            <label style={{ display: 'block', marginBottom: 6, fontWeight: 600 }}>单段最大时长（秒）</label>
+            <label style={{ display: 'block', marginBottom: 6, fontWeight: 600 }}>{t('segmentation.modal.maxDurationLabel')}</label>
             <input
               type="number"
               min={0.5}
@@ -113,7 +115,7 @@ export default function SegmentationRulesModal({ isOpen, options, onClose, onSav
               style={numberInputStyle}
             />
             <div style={{ marginTop: 6, color: 'var(--text-secondary)', fontSize: '0.8rem' }}>
-              超过该时长会切分，建议范围 2.0-4.0 秒。
+              {t('segmentation.modal.maxDurationHelp')}
             </div>
           </div>
 
@@ -124,15 +126,15 @@ export default function SegmentationRulesModal({ isOpen, options, onClose, onSav
                 checked={draft.punctuationSplit ?? DEFAULT_SEGMENTATION_OPTIONS.punctuationSplit}
                 onChange={(e) => setDraft((prev) => ({ ...prev, punctuationSplit: e.target.checked }))}
               />
-              遇到标点时允许提前切分
+              {t('segmentation.modal.punctuationSplitLabel')}
             </label>
             <div style={{ marginTop: 8, color: 'var(--text-secondary)', fontSize: '0.8rem' }}>
-              仅当当前段长度超过最小字符阈值时生效。
+              {t('segmentation.modal.punctuationSplitHelp')}
             </div>
           </div>
 
           <div>
-            <label style={{ display: 'block', marginBottom: 6, fontWeight: 600 }}>标点触发最小字符数</label>
+            <label style={{ display: 'block', marginBottom: 6, fontWeight: 600 }}>{t('segmentation.modal.punctuationMinCharsLabel')}</label>
             <input
               type="number"
               min={5}
@@ -147,7 +149,7 @@ export default function SegmentationRulesModal({ isOpen, options, onClose, onSav
               disabled={draft.punctuationSplit === false}
             />
             <div style={{ marginTop: 6, color: 'var(--text-secondary)', fontSize: '0.8rem' }}>
-              默认 10 个字符；过小会导致切分过碎。
+              {t('segmentation.modal.punctuationMinCharsHelp')}
             </div>
           </div>
         </div>
@@ -164,14 +166,14 @@ export default function SegmentationRulesModal({ isOpen, options, onClose, onSav
               cursor: 'pointer',
             }}
           >
-            取消
+            {t('segmentation.modal.cancel')}
           </button>
           <button
             onClick={handleSave}
             className="btn-primary"
             style={{ padding: '8px 16px', fontSize: '0.9rem' }}
           >
-            保存规则
+            {t('segmentation.modal.save')}
           </button>
         </div>
       </div>

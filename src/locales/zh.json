@@ -1,0 +1,117 @@
+{
+  "appName": "PRETTY SUB",
+  "appDescription": "AI 驱动的动态字幕视频编辑器",
+  "upload": {
+    "title": "点击上传视频",
+    "requirements": "文件格式要求：MP4/AVI/MOV/MKV/FLV/WMV，不大于 2GB，30 分钟以内",
+    "recommended": "推荐 15 分钟以内的 MP4",
+    "reupload": "重新上传"
+  },
+  "metadata": {
+    "loading": "正在加载元数据...",
+    "extracting": "正在提取音频...",
+    "ready": "音频已提取，准备好生成字幕。"
+  },
+  "transcription": {
+    "title": "获取字幕",
+    "generate": "生成字幕",
+    "processing1": "AI 处理 1/2 - 字幕获取中",
+    "processing2": "AI 处理 2/2 - 分段优化中",
+    "regenerate": "重新生成分段",
+    "regenerating": "处理中",
+    "generated": "已生成 {count} 个字幕片段",
+    "confirmRegenerate": "重新生成分段会覆盖当前编辑内容。是否继续？"
+  },
+  "segmentation": {
+    "rules": "分段规则",
+    "viewEdit": "查看/编辑",
+    "summary": "{maxChars}字 / {maxDuration}s / {punctuation}",
+    "aiApplied": "AI 分段已应用（{model}）",
+    "punctuationEnabled": "标点>{minChars}字",
+    "punctuationDisabled": "标点关闭",
+    "modal": {
+      "title": "分段规则配置",
+      "maxCharsLabel": "单行最大字符数",
+      "maxCharsHelp": "超过该长度会强制切分，建议范围 15-45。",
+      "maxDurationLabel": "单段最大时长（秒）",
+      "maxDurationHelp": "超过该时长会切分，建议范围 2.0-4.0 秒。",
+      "punctuationSplitLabel": "遇到标点时允许提前切分",
+      "punctuationSplitHelp": "仅当当前段长度超过最小字符阈值时生效。",
+      "punctuationMinCharsLabel": "标点触发最小字符数",
+      "punctuationMinCharsHelp": "默认 10 个字符；过小会导致切分过碎。",
+      "cancel": "取消",
+      "save": "保存规则"
+    },
+    "status": {
+      "aiStarted": "启动 AI 分段",
+      "aiProcessing": "AI 处理中...",
+      "aiSuccess": "AI 分段成功",
+      "aiFailed": "AI 失败，切换规则分段",
+      "rulesProcessing": "规则分段处理中...",
+      "rulesSuccess": "规则分段完成"
+    }
+  },
+  "editor": {
+    "title": "字幕编辑器",
+    "cut": "剪切",
+    "cutSilence": "（静音）",
+    "cutVideo": "（视频）",
+    "delete": "删除",
+    "deleteText": "（仅文本）",
+    "restore": "恢复",
+    "adjustPosition": "调整垂直位置",
+    "yAxis": "Y轴",
+    "default": "默认",
+    "reset": "重置",
+    "selected": "{count} 已选择"
+  },
+  "fontSelector": {
+    "title": "字体选择"
+  },
+  "style": {
+    "title": "字幕样式",
+    "verticalPosition": "垂直位置",
+    "top": "顶部 (0%)",
+    "bottom": "底部 (100%)"
+  },
+  "errors": {
+    "fileTooLarge": "文件不符合要求",
+    "fileTooLargeMessage": "文件过大（{size}，最大 2GB）",
+    "audioExtractionFailed": "音频提取失败",
+    "audioExtractionFailedMessage": "无法从视频中提取音频。请确保视频文件包含音频轨道，然后重试。",
+    "fileProcessingFailed": "文件处理失败",
+    "fileProcessingFailedMessage": "无法处理此视频文件。请尝试其他文件。"
+  },
+  "dialogs": {
+    "reuploadTitle": "重新上传视频",
+    "reuploadMessage": "重新上传将清理当前视频及所有处理结果。此操作不可撤销。",
+    "confirm": "确认",
+    "cancel": "取消",
+    "error": {
+      "ok": "知道了"
+    }
+  },
+  "language": {
+    "switchTo": "English"
+  },
+  "status": {
+    "fileRejected": "文件已拒绝。",
+    "audioExtractionFailed": "音频提取失败。",
+    "processingFailed": "视频处理失败。",
+    "transcribing": "正在转录音频（可能需要一点时间）...",
+    "generatingSegments": "正在生成分段...",
+    "regeneratingSegments": "正在重新生成分段...",
+    "segmentationUpdated": "分段已更新。",
+    "transcriptionComplete": "转录和分段完成！",
+    "transcriptionFailed": "转录失败：{error}"
+  },
+  "validation": {
+    "fileTooLarge": "文件过大（最大{size}）",
+    "durationTooLong": "时长超限（最大{duration}）",
+    "sizeRecommendation": "推荐 < {recommendedSize}（当前{currentSize}）",
+    "durationRecommendation": "推荐 5-{recommendedDuration}（当前{currentDuration}分钟）",
+    "formatRecommendation": "推荐 MP4 格式",
+    "processingTimeWarning": "推荐 {recommendations}，当前文件处理时间会稍长一些",
+    "minutes": "分钟"
+  }
+}

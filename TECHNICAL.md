@@ -75,6 +75,9 @@ flowchart LR
 - `src/components/SubtitleEditor.tsx`：编辑器 UI 与交互规则。
 - `src/lib/timelineUtils.ts`：剪切区间合并与可播放时间线生成。
 - `src/remotion/MainComposition.tsx` / `src/remotion/DynamicCaptions.tsx`：预览渲染与动态字幕。
+- `src/contexts/LanguageContext.tsx`：多语言状态管理，提供翻译功能与语言切换。
+- `src/locales/`：翻译数据文件（中文/英文）。
+- `src/components/LanguageSwitcher.tsx`：语言切换UI组件。
 
 ### 核心数据结构
 
@@ -210,6 +213,51 @@ interface UIItem {
 - `type='gap'` 表示静音区间，`text` 为形如 `0.35s` 的时长字符串。
 - `originalWordIndex` 指向该 gap 后方的词，用于将 gap 操作映射回 `SegmentWord`。
 - `id` 以 `gap-<segmentId>-<wordIdx>` 或 `<segmentId>-word-<wordIdx>` 的模式生成。
+
+### 多语言支持
+项目实现了完整的中英文双语支持，采用 React Context + JSON + LocalStorage 的轻量级方案。
+
+#### 架构设计
+- **状态管理**：`LanguageContext` 提供全局语言状态和翻译函数
+- **翻译数据**：`src/locales/zh.json` 和 `src/locales/en.json` 存储翻译文本
+- **持久化**：使用 `localStorage` 保存用户语言偏好
+- **自动检测**：首次访问根据浏览器语言自动选择
+
+#### 核心特性
+- **无刷新切换**：语言切换不改变 URL，不中断 AI 处理进程
+- **参数插值**：支持动态参数，如 `{count}`, `{size}` 等
+- **全面覆盖**：所有 UI 文本、提示信息、错误消息均支持翻译
+- **类型安全**：TypeScript 类型定义确保翻译键的正确性
+
+#### 使用方式
+```typescript
+// 在组件中使用翻译
+const { t, language, setLanguage } = useLanguage();
+
+// 简单翻译
+t('app.title')
+
+// 带参数翻译
+t('validation.sizeRecommendation', {
+  recommendedSize: '200 MB',
+  currentSize: '219 MB'
+})
+
+// 语言切换
+setLanguage('zh') // 中文
+setLanguage('en') // 英文
+```
+
+#### 翻译键组织
+翻译键按功能模块分层组织：
+- `app.*` - 应用基础信息
+- `upload.*` - 上传相关
+- `transcription.*` - 转写功能
+- `segmentation.*` - 分段配置
+- `editor.*` - 编辑器功能
+- `validation.*` - 文件验证提示
+- `errors.*` - 错误消息
+- `status.*` - 状态提示
 
 ## 处理流程
 

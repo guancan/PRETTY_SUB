@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { SubtitleSegment, SegmentWord } from '@/lib/segmentation';
 import { Trash2, Check, Scissors, MicOff, Palette, X, ArrowUpDown } from 'lucide-react';
+import { useLanguage } from '@/contexts/LanguageContext';
 
 interface EditorProps {
     segments: SubtitleSegment[];
@@ -38,6 +39,8 @@ const PRESET_COLORS = [
 ];
 
 export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: EditorProps) {
+    const { t } = useLanguage();
+
     // We compute items from segments, but we don't duplicate state.
     // We need to find items back in segments when editing.
 
@@ -474,22 +477,22 @@ export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: E
 
                     {/* Actions Column */}
                     <button onClick={cutSelected} className="btn-editor-action vertical cut">
-                        <Scissors size={14} /> <span>Cut {selectedIds.some(id => id.includes('gap')) ? '(Silence)' : '(Video)'}</span>
+                        <Scissors size={14} /> <span>{t('editor.cut')} {selectedIds.some(id => id.includes('gap')) ? t('editor.cutSilence') : t('editor.cutVideo')}</span>
                     </button>
                     {!selectedIds.some(id => id.includes('gap')) && (
                         <button onClick={deleteSelected} className="btn-editor-action vertical delete">
-                            <Trash2 size={14} /> <span>Delete (Text)</span>
+                            <Trash2 size={14} /> <span>{t('editor.delete')} {t('editor.deleteText')}</span>
                         </button>
                     )}
                     <button onClick={restoreSelected} className="btn-editor-action vertical restore">
-                        <Check size={14} /> <span>Restore</span>
+                        <Check size={14} /> <span>{t('editor.restore')}</span>
                     </button>
 
                     <div style={{ height: 1, background: 'rgba(255,255,255,0.05)', margin: '2px 0' }} />
 
                     {/* Close / Info */}
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 8px' }}>
-                        <span style={{ fontSize: '0.7rem', color: '#555' }}>{selectedIds.length} select</span>
+                        <span style={{ fontSize: '0.7rem', color: '#555' }}>{t('editor.selected', { count: selectedIds.length })}</span>
                         <button onClick={clearSelection} style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer', padding: 2 }}>
                             <X size={12} />
                         </button>
@@ -520,7 +523,7 @@ export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: E
                                     <span>{startTime}</span>
                                     <button
                                         onClick={() => setExpandedLayoutId(expandedLayoutId === segId ? null : segId)}
-                                        title="Adjust Vertical Position"
+                                        title={t('editor.adjustPosition')}
                                         style={{
                                             background: 'none',
                                             border: 'none',
@@ -597,7 +600,7 @@ export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: E
                                 return (
                                     <div style={{ marginLeft: 66, marginBottom: 16, padding: '8px 12px', background: 'rgba(255,255,255,0.03)', borderRadius: 8, display: 'flex', alignItems: 'center', gap: 12 }}>
                                         <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
-                                            Y-Axis: {currentY !== undefined ? `${currentY}%` : 'Default'}
+                                            {t('editor.yAxis')}: {currentY !== undefined ? `${currentY}%` : t('editor.default')}
                                         </span>
                                         <input
                                             type="range"
@@ -612,7 +615,7 @@ export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: E
                                                 onClick={() => updateSegmentY(segId, undefined)}
                                                 style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', background: 'none', border: '1px solid var(--border-subtle)', padding: '2px 6px', borderRadius: 4, cursor: 'pointer' }}
                                             >
-                                                Reset
+                                                {t('editor.reset')}
                                             </button>
                                         )}
                                     </div>

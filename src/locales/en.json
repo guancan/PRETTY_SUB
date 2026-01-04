@@ -1,0 +1,117 @@
+{
+  "appName": "PRETTY SUB",
+  "appDescription": "AI-Powered Video Editor with Dynamic Subtitles",
+  "upload": {
+    "title": "Click to Upload Video",
+    "requirements": "File format requirements: MP4/AVI/MOV/MKV/FLV/WMV, max 2GB, within 30 minutes",
+    "recommended": "Recommended: MP4 within 15 minutes",
+    "reupload": "Reupload"
+  },
+  "metadata": {
+    "loading": "Loading metadata...",
+    "extracting": "Extracting audio...",
+    "ready": "Audio extracted. Ready to generate subtitles."
+  },
+  "transcription": {
+    "title": "Get Subtitles",
+    "generate": "Generate Subtitles",
+    "processing1": "AI Processing 1/2 - Transcribing",
+    "processing2": "AI Processing 2/2 - Segmenting",
+    "regenerate": "Regenerate Segments",
+    "regenerating": "Processing...",
+    "generated": "Generated {count} subtitle segments",
+    "confirmRegenerate": "Regenerating segments will overwrite current edits. Continue?"
+  },
+  "segmentation": {
+    "rules": "Segmentation Rules",
+    "viewEdit": "View/Edit",
+    "summary": "{maxChars} chars / {maxDuration}s / {punctuation}",
+    "aiApplied": "AI segmentation applied ({model})",
+    "punctuationEnabled": "punctuation>{minChars} chars",
+    "punctuationDisabled": "punctuation disabled",
+    "modal": {
+      "title": "Segmentation Rules Configuration",
+      "maxCharsLabel": "Max Characters Per Line",
+      "maxCharsHelp": "Forced split when exceeded, recommended range 15-45.",
+      "maxDurationLabel": "Max Duration Per Segment (seconds)",
+      "maxDurationHelp": "Split when exceeded, recommended range 2.0-4.0 seconds.",
+      "punctuationSplitLabel": "Allow Early Split at Punctuation",
+      "punctuationSplitHelp": "Only effective when current segment length exceeds minimum character threshold.",
+      "punctuationMinCharsLabel": "Minimum Characters for Punctuation Trigger",
+      "punctuationMinCharsHelp": "Default 10 characters; too small will cause excessive fragmentation.",
+      "cancel": "Cancel",
+      "save": "Save Rules"
+    },
+    "status": {
+      "aiStarted": "Starting AI Segmentation",
+      "aiProcessing": "AI Processing...",
+      "aiSuccess": "AI Segmentation Successful",
+      "aiFailed": "AI Failed, Switching to Rule-based Segmentation",
+      "rulesProcessing": "Rule-based Processing...",
+      "rulesSuccess": "Rule-based Segmentation Complete"
+    }
+  },
+  "editor": {
+    "title": "Subtitle Editor",
+    "cut": "Cut",
+    "cutSilence": "(Silence)",
+    "cutVideo": "(Video)",
+    "delete": "Delete",
+    "deleteText": "(Text)",
+    "restore": "Restore",
+    "adjustPosition": "Adjust Vertical Position",
+    "yAxis": "Y-Axis",
+    "default": "Default",
+    "reset": "Reset",
+    "selected": "{count} selected"
+  },
+  "style": {
+    "title": "Subtitle Style",
+    "verticalPosition": "Vertical Position",
+    "top": "Top (0%)",
+    "bottom": "Bottom (100%)"
+  },
+  "fontSelector": {
+    "title": "Font Family"
+  },
+  "errors": {
+    "fileTooLarge": "File does not meet requirements",
+    "fileTooLargeMessage": "File too large ({size}, max 2GB)",
+    "audioExtractionFailed": "Audio extraction failed",
+    "audioExtractionFailedMessage": "Unable to extract audio from video. Please ensure the video file contains an audio track and try again.",
+    "fileProcessingFailed": "File processing failed",
+    "fileProcessingFailedMessage": "Unable to process this video file. Please try another file."
+  },
+  "dialogs": {
+    "reuploadTitle": "Reupload Video",
+    "reuploadMessage": "Reuploading will clear the current video and all processing results. This action cannot be undone.",
+    "confirm": "Confirm",
+    "cancel": "Cancel",
+    "error": {
+      "ok": "Got it"
+    }
+  },
+  "language": {
+    "switchTo": "中文"
+  },
+  "status": {
+    "fileRejected": "File rejected.",
+    "audioExtractionFailed": "Audio extraction failed.",
+    "processingFailed": "Failed to process video.",
+    "transcribing": "Transcribing audio (this may take a moment)...",
+    "generatingSegments": "Generating segments...",
+    "regeneratingSegments": "Regenerating segments...",
+    "segmentationUpdated": "Segmentation updated.",
+    "transcriptionComplete": "Transcription & Segmentation complete!",
+    "transcriptionFailed": "Transcription failed: {error}"
+  },
+  "validation": {
+    "fileTooLarge": "File too large (max {size})",
+    "durationTooLong": "Duration exceeds limit (max {duration})",
+    "sizeRecommendation": "Recommend < {recommendedSize} (current {currentSize})",
+    "durationRecommendation": "Recommend 5-{recommendedDuration} (current {currentDuration} minutes)",
+    "formatRecommendation": "Recommend MP4 format",
+    "processingTimeWarning": "Recommend {recommendations}, current file processing time will be longer",
+    "minutes": "minutes"
+  }
+}
