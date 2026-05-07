@@ -23,6 +23,9 @@ import { MainComposition } from '@/remotion/MainComposition';
 import { calculatePlayableClips, calculateTotalDuration, mapOriginalToPlayableTime } from '@/lib/timelineUtils';
 import { useLanguage } from '@/contexts/LanguageContext';
 import LanguageSwitcher from '@/components/LanguageSwitcher';
+import ExportPanel from '@/components/ExportPanel';
+import { useVideoExporter } from '@/hooks/useVideoExporter';
+import { exportSrt } from '@/lib/exportUtils';
 
 const SEGMENTATION_RULES_STORAGE_KEY = 'pretty_sub.segmentation_rules.v1';
 
@@ -66,6 +69,7 @@ export default function Home() {
   const playerRef = useRef<PlayerRef>(null);
 
   const { extractAudio, isReady, load, progress } = useAudioExtractor();
+  const { exportState: videoExportState, exportTrimmedVideo, resetExport } = useVideoExporter();
 
   const maxChars = segmentationOptions.maxCharsPerLine ?? DEFAULT_SEGMENTATION_OPTIONS.maxCharsPerLine;
   const maxDuration = segmentationOptions.maxDurationSeconds ?? DEFAULT_SEGMENTATION_OPTIONS.maxDurationSeconds;
@@ -320,6 +324,24 @@ export default function Home() {
     } finally {
       setIsResegmenting(false);
     }
+  };
+
+  // Detect if any cuts exist in the segments
+  const hasCuts = segments.some(seg =>
+    seg.words.some(w => w.isCut || w.isGapCut)
+  );
+
+  const handleExportSrt = () => {
+    if (!videoMetadata || segments.length === 0) return;
+    const baseName = videoFile?.name?.replace(/\.[^.]+$/, '') || 'subtitles';
+    exportSrt(segments, videoMetadata.durationInSeconds, `${baseName}.srt`);
+  };
+
+  const handleExportVideo = async () => {
+    if (!videoFile || !videoMetadata) return;
+    const clips = calculatePlayableClips(segments, videoMetadata.durationInSeconds);
+    const baseName = videoFile.name.replace(/\.[^.]+$/, '');
+    await exportTrimmedVideo(videoFile, clips, `${baseName}_trimmed.mp4`);
   };
 
   return (
@@ -644,6 +666,16 @@ export default function Home() {
                     </div>
                   </div>
                 </div>
+
+              {/* Export Panel */}
+              <ExportPanel
+                segmentCount={segments.filter(seg => seg.words.some(w => !w.isDeleted && !w.isCut)).length}
+                hasCuts={hasCuts}
+                onExportSrt={handleExportSrt}
+                onExportVideo={handleExportVideo}
+                videoExportState={videoExportState}
+                onResetExport={resetExport}
+              />
               </>
             )}
           </div>

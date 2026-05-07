@@ -113,5 +113,16 @@
     "formatRecommendation": "推荐 MP4 格式",
     "processingTimeWarning": "推荐 {recommendations}，当前文件处理时间会稍长一些",
     "minutes": "分钟"
+  },
+  "export": {
+    "title": "导出",
+    "srtTitle": "导出 SRT 字幕",
+    "srtDescription": "{count} 个字幕片段",
+    "videoTitle": "导出剪切视频",
+    "videoDescriptionWithCuts": "导出应用剪切后的 MP4 视频",
+    "videoDescriptionNoCuts": "导出原始视频（无剪切）",
+    "videoDone": "视频导出完成",
+    "videoError": "导出失败",
+    "clickToReset": "点击重置"
   }
 }

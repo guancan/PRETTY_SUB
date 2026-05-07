@@ -113,5 +113,16 @@
     "formatRecommendation": "Recommend MP4 format",
     "processingTimeWarning": "Recommend {recommendations}, current file processing time will be longer",
     "minutes": "minutes"
+  },
+  "export": {
+    "title": "Export",
+    "srtTitle": "Export SRT Subtitles",
+    "srtDescription": "{count} subtitle segments",
+    "videoTitle": "Export Trimmed Video",
+    "videoDescriptionWithCuts": "Export MP4 with cuts applied",
+    "videoDescriptionNoCuts": "Export original video (no cuts)",
+    "videoDone": "Video Export Complete",
+    "videoError": "Export Failed",
+    "clickToReset": "Click to reset"
   }
 }
