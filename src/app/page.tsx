@@ -25,6 +25,7 @@ import { useLanguage } from '@/contexts/LanguageContext';
 import LanguageSwitcher from '@/components/LanguageSwitcher';
 import ExportPanel from '@/components/ExportPanel';
 import { useVideoExporter } from '@/hooks/useVideoExporter';
+import { useOverlayExporter } from '@/hooks/useOverlayExporter';
 import { exportSrt } from '@/lib/exportUtils';
 
 const SEGMENTATION_RULES_STORAGE_KEY = 'pretty_sub.segmentation_rules.v1';
@@ -70,6 +71,7 @@ export default function Home() {
 
   const { extractAudio, isReady, load, progress } = useAudioExtractor();
   const { exportState: videoExportState, exportTrimmedVideo, resetExport } = useVideoExporter();
+  const { overlayExportState, exportOverlayVideo, resetOverlayExport } = useOverlayExporter();
 
   const maxChars = segmentationOptions.maxCharsPerLine ?? DEFAULT_SEGMENTATION_OPTIONS.maxCharsPerLine;
   const maxDuration = segmentationOptions.maxDurationSeconds ?? DEFAULT_SEGMENTATION_OPTIONS.maxDurationSeconds;
@@ -342,6 +344,19 @@ export default function Home() {
     const clips = calculatePlayableClips(segments, videoMetadata.durationInSeconds);
     const baseName = videoFile.name.replace(/\.[^.]+$/, '');
     await exportTrimmedVideo(videoFile, clips, `${baseName}_trimmed.mp4`);
+  };
+
+  const handleExportOverlay = async () => {
+    if (!videoFile || !videoMetadata) return;
+    const baseName = videoFile.name.replace(/\.[^.]+$/, '');
+    await exportOverlayVideo(
+      videoFile,
+      segments,
+      videoMetadata.durationInSeconds,
+      selectedFont,
+      globalYPosition,
+      `${baseName}_subtitled.mp4`
+    );
   };
 
   return (
@@ -673,8 +688,11 @@ export default function Home() {
                 hasCuts={hasCuts}
                 onExportSrt={handleExportSrt}
                 onExportVideo={handleExportVideo}
+                onExportOverlay={handleExportOverlay}
                 videoExportState={videoExportState}
+                overlayExportState={overlayExportState}
                 onResetExport={resetExport}
+                onResetOverlayExport={resetOverlayExport}
               />
               </>
             )}

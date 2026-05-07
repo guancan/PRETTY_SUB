@@ -123,6 +123,8 @@
     "videoDescriptionNoCuts": "Export original video (no cuts)",
     "videoDone": "Video Export Complete",
     "videoError": "Export Failed",
-    "clickToReset": "Click to reset"
+    "clickToReset": "Click to reset",
+    "overlayTitle": "Export with Subtitles",
+    "overlayDescription": "Burn subtitles into video and export MP4"
   }
 }

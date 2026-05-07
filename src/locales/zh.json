@@ -123,6 +123,8 @@
     "videoDescriptionNoCuts": "导出原始视频（无剪切）",
     "videoDone": "视频导出完成",
     "videoError": "导出失败",
-    "clickToReset": "点击重置"
+    "clickToReset": "点击重置",
+    "overlayTitle": "导出带字幕视频",
+    "overlayDescription": "将字幕烧录到视频中导出 MP4"
   }
 }
