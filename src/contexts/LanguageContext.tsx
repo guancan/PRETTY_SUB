@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useState } from 'react';
+import React, { createContext, useContext, useState, useEffect } from 'react';
 
 export type Language = 'en' | 'zh';
 
@@ -15,20 +15,18 @@ const LANGUAGE_STORAGE_KEY = 'pretty_sub_language';
 const LanguageContext = createContext<LanguageContextType | undefined>(undefined);
 
 export function LanguageProvider({ children }: { children: React.ReactNode }) {
-  // Initialize language from localStorage, fallback to browser language
-  const getInitialLanguage = (): Language => {
-    if (typeof window !== 'undefined') {
-      const stored = localStorage.getItem(LANGUAGE_STORAGE_KEY);
-      if (stored === 'zh' || stored === 'en') {
-        return stored;
-      }
-      // Fallback to browser language
-      return navigator.language.startsWith('zh') ? 'zh' : 'en';
-    }
-    return 'en'; // Server-side default
-  };
+  // Always start with 'en' to match SSR, then update on client after mount
+  const [language, setLanguageState] = useState<Language>('en');
 
-  const [language, setLanguageState] = useState<Language>(getInitialLanguage);
+  useEffect(() => {
+    // Read persisted preference or browser language only on the client
+    const stored = localStorage.getItem(LANGUAGE_STORAGE_KEY);
+    if (stored === 'zh' || stored === 'en') {
+      setLanguageState(stored);
+    } else if (navigator.language.startsWith('zh')) {
+      setLanguageState('zh');
+    }
+  }, []);
 
   const setLanguage = (lang: Language) => {
     setLanguageState(lang);
