@@ -1,5 +1,6 @@
 import { SubtitleSegment } from './segmentation';
 import { calculatePlayableClips, mapOriginalToPlayableTime, TimeRange } from './timelineUtils';
+import { joinTranscriptTokens } from './transcriptText';
 
 /**
  * Formats seconds into SRT timecode: HH:MM:SS,mmm
@@ -37,7 +38,7 @@ export function buildSrtSegments(
         const visibleWords = seg.words.filter(w => !w.isDeleted && !w.isCut);
         if (visibleWords.length === 0) continue;
 
-        const text = visibleWords.map(w => w.word).join(' ').trim();
+        const text = joinTranscriptTokens(visibleWords).trim();
         if (!text) continue;
 
         // Map original timestamps to the playable (trimmed) timeline

@@ -6,7 +6,7 @@ import { useAudioExtractor } from '@/hooks/useAudioExtractor';
 import { useHistory } from '@/hooks/useHistory';
 import { aiSegmentWords } from '@/actions/aiSegment';
 import { transcribeAudio, TranscriptionResponse } from '@/actions/transcribe';
-import { buildSegmentsFromRanges, DEFAULT_SEGMENTATION_OPTIONS, normalizeSegmentationOptions, SegmentationOptions, segmentWords, SubtitleSegment } from '@/lib/segmentation';
+import { buildSegmentsFromProviderUtterances, buildSegmentsFromRanges, DEFAULT_SEGMENTATION_OPTIONS, normalizeSegmentationOptions, SegmentationOptions, segmentWords, SubtitleSegment } from '@/lib/segmentation';
 import SubtitleEditor from '@/components/SubtitleEditor';
 import FontSelector from '@/components/FontSelector';
 import SegmentationRulesModal from '@/components/SegmentationRulesModal';
@@ -245,7 +245,32 @@ export default function Home() {
     Logger.info('Video file and related data cleared');
   }, [setSegments]);
 
-  const generateSegments = async (words: TranscriptionResponse['words']) => {
+  const generateSegments = async (transcriptionResult: TranscriptionResponse, options: { preferProviderUtterances?: boolean; useAi?: boolean } = {}): Promise<SubtitleSegment[]> => {
+    const words = transcriptionResult.words;
+
+    if (options.preferProviderUtterances && transcriptionResult.utterances?.length) {
+      const providerSegments = buildSegmentsFromProviderUtterances(words, transcriptionResult.utterances);
+      if (providerSegments.length > 0) {
+        Logger.info('Provider utterance segmentation applied', {
+          provider: transcriptionResult.provider,
+          utterances: transcriptionResult.utterances.length,
+          segments: providerSegments.length,
+        });
+        return providerSegments;
+      }
+    }
+
+    if (options.useAi === false) {
+      setSegmentationStatus('rules-processing');
+      const ruleSegments = segmentWords(words, segmentationOptions);
+      setSegmentationStatus('rules-success');
+
+      if (statusTimeoutRef.current) clearTimeout(statusTimeoutRef.current);
+      statusTimeoutRef.current = setTimeout(() => setSegmentationStatus('idle'), 3000);
+
+      return ruleSegments;
+    }
+
     try {
       setSegmentationStatus('ai-started');
       await new Promise(resolve => setTimeout(resolve, 300));
@@ -273,13 +298,13 @@ export default function Home() {
     }
 
     setSegmentationStatus('rules-processing');
-    const result = segmentWords(words, segmentationOptions);
+    const ruleSegments = segmentWords(words, segmentationOptions);
     setSegmentationStatus('rules-success');
 
     if (statusTimeoutRef.current) clearTimeout(statusTimeoutRef.current);
     statusTimeoutRef.current = setTimeout(() => setSegmentationStatus('idle'), 3000);
 
-    return result;
+    return ruleSegments;
   };
 
   const handleTranscribe = async () => {
@@ -298,7 +323,7 @@ export default function Home() {
         setTranscription(result);
         setProcessingStage('segmenting');
         setStatus(t('status.generatingSegments'));
-        const segs = await generateSegments(result.words);
+        const segs = await generateSegments(result, { useAi: result.provider !== 'doubao-flash' });
         setSegments(segs);
         setStatus(t('status.transcriptionComplete'));
         Logger.info('Transcription result', result);
@@ -319,7 +344,7 @@ export default function Home() {
     setIsResegmenting(true);
     setStatus(t('status.regeneratingSegments'));
     try {
-      const segs = await generateSegments(transcription.words);
+      const segs = await generateSegments(transcription, { useAi: transcription.provider !== 'doubao-flash' });
       setSegments(segs);
       setStatus(t('status.segmentationUpdated'));
       setSegmentationStatus('idle');

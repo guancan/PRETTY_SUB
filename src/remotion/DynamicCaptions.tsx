@@ -1,6 +1,7 @@
 import React from 'react';
 import { useCurrentFrame, useVideoConfig } from 'remotion';
 import { SubtitleSegment } from '@/lib/segmentation';
+import { shouldInsertSpaceBetweenTokens } from '@/lib/transcriptText';
 
 // Constants for preset colors (matching Editor)
 const PRESET_COLORS = [
@@ -74,12 +75,16 @@ export const DynamicCaptions: React.FC<DynamicCaptionsProps> = ({ segments, font
                     // Maybe boost scale if active?
 
                     const color = PRESET_COLORS[word.color || 0];
+                    const nextVisibleWord = activeSegment.words
+                        .slice(index + 1)
+                        .find((candidate) => !candidate.isDeleted && !candidate.isCut);
+                    const marginRight = shouldInsertSpaceBetweenTokens(word.word, nextVisibleWord?.word) ? 16 : 0;
 
                     return (
                         <span
                             key={`${activeSegment.id}-${index}`}
                             style={{
-                                margin: '0 8px',
+                                marginRight,
                                 fontSize: 48,
                                 fontFamily: fontFamily || 'system-ui, -apple-system, sans-serif',
                                 fontWeight: word.color ? 800 : 600,

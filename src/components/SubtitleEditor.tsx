@@ -2,6 +2,7 @@ import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { SubtitleSegment, SegmentWord } from '@/lib/segmentation';
 import { Trash2, Check, Scissors, MicOff, Palette, X, ArrowUpDown } from 'lucide-react';
 import { useLanguage } from '@/contexts/LanguageContext';
+import { isCjkText, isPunctuationText, joinTranscriptTokens } from '@/lib/transcriptText';
 
 interface EditorProps {
     segments: SubtitleSegment[];
@@ -24,6 +25,8 @@ interface UIItem {
     color: number; // 0-3
     segmentId: string; // Belongs to which visual line 
     originalWordIndex?: number; // Pointer back to segment.words index
+    originalWordIndices?: number[]; // Pointer back to all token indices represented by this chip
+    parts?: { text: string; wordIndex: number }[];
 }
 
 interface SelectionState {
@@ -38,6 +41,10 @@ const PRESET_COLORS = [
     '#3b82f6', // Blue
 ];
 
+const getItemWordIndices = (item: UIItem): number[] => (
+    item.originalWordIndices ?? (item.originalWordIndex !== undefined ? [item.originalWordIndex] : [])
+);
+
 export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: EditorProps) {
     const { t } = useLanguage();
 
@@ -47,6 +54,9 @@ export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: E
     const [selection, setSelection] = useState<SelectionState>({ startId: null, endId: null });
     const [menuPosition, setMenuPosition] = useState<{ top: number; left: number } | null>(null);
     const [expandedLayoutId, setExpandedLayoutId] = useState<string | null>(null);
+    const [isDraggingSelection, setIsDraggingSelection] = useState(false);
+    const [tokenOverride, setTokenOverride] = useState<{ itemId: string; wordIndex: number } | null>(null);
+    const dragStartIdRef = useRef<string | null>(null);
 
     // Calculate display items (Memoized purely for display)
 
@@ -55,6 +65,76 @@ export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: E
         const MIN_GAP_DURATION = 0.1;
 
         segments.forEach((seg, segIdx) => {
+            const pushWordItem = (indices: number[]) => {
+                if (indices.length === 0) return;
+
+                const groupWords = indices.map((idx) => seg.words[idx]);
+                const firstWord = groupWords[0];
+                const lastWord = groupWords[groupWords.length - 1];
+                const firstIndex = indices[0];
+                const lastIndex = indices[indices.length - 1];
+                const coloredWord = groupWords.find((word) => word.color && word.color > 0);
+
+                newItems.push({
+                    id: `${seg.id}-word-${firstIndex}-${lastIndex}`,
+                    type: 'word',
+                    text: joinTranscriptTokens(groupWords),
+                    start: firstWord.start,
+                    end: lastWord.end,
+                    isDeleted: groupWords.every((word) => word.isDeleted),
+                    isCut: groupWords.every((word) => word.isCut),
+                    isGapCut: firstWord.isGapCut || false,
+                    color: coloredWord?.color || 0,
+                    segmentId: seg.id,
+                    originalWordIndex: firstIndex,
+                    originalWordIndices: indices,
+                    parts: groupWords.map((word, idx) => ({
+                        text: word.word,
+                        wordIndex: indices[idx]
+                    }))
+                });
+            };
+
+            const pushCjkRun = (indices: number[]) => {
+                if (indices.length === 0) return;
+
+                if (typeof Intl === 'undefined' || typeof Intl.Segmenter === 'undefined') {
+                    indices.forEach((idx) => pushWordItem([idx]));
+                    return;
+                }
+
+                const runWords = indices.map((idx) => seg.words[idx]);
+                const runText = joinTranscriptTokens(runWords);
+                const offsets = new Map<number, number>();
+                let cursor = 0;
+
+                indices.forEach((idx) => {
+                    offsets.set(idx, cursor);
+                    cursor += Array.from(seg.words[idx].word).length;
+                });
+
+                const segmenter = new Intl.Segmenter('zh', { granularity: 'word' });
+                Array.from(segmenter.segment(runText)).forEach((part) => {
+                    const partStart = part.index;
+                    const partEnd = part.index + Array.from(part.segment).length;
+                    const groupIndices = indices.filter((idx) => {
+                        const tokenStart = offsets.get(idx) ?? 0;
+                        const tokenEnd = tokenStart + Array.from(seg.words[idx].word).length;
+                        return tokenStart < partEnd && tokenEnd > partStart;
+                    });
+
+                    if (groupIndices.length > 0) {
+                        pushWordItem(groupIndices);
+                    }
+                });
+            };
+
+            let cjkRunIndices: number[] = [];
+            const flushCjkRun = () => {
+                pushCjkRun(cjkRunIndices);
+                cjkRunIndices = [];
+            };
+
             seg.words.forEach((word, wordIdx) => {
                 let prevEnd = 0;
                 if (wordIdx > 0) {
@@ -68,6 +148,7 @@ export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: E
 
                 // Start Gap
                 if (segIdx === 0 && wordIdx === 0 && word.start > MIN_GAP_DURATION) {
+                    flushCjkRun();
                     newItems.push({
                         id: `gap-start`,
                         type: 'gap',
@@ -86,6 +167,7 @@ export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: E
                 if (wordIdx > 0 || segIdx > 0) {
                     const gap = word.start - prevEnd;
                     if (gap > MIN_GAP_DURATION) {
+                        flushCjkRun();
                         newItems.push({
                             id: `gap-${seg.id}-${wordIdx}`,
                             type: 'gap',
@@ -101,27 +183,32 @@ export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: E
                     }
                 }
 
-                // Word
-                newItems.push({
-                    id: `${seg.id}-word-${wordIdx}`,
-                    type: 'word',
-                    text: word.word,
-                    start: word.start,
-                    end: word.end,
-                    isDeleted: word.isDeleted || false,
-                    isCut: word.isCut || false,
-                    isGapCut: word.isGapCut || false,
-                    color: word.color || 0,
-                    segmentId: seg.id,
-                    originalWordIndex: wordIdx
-                });
+                if (word.kind !== 'punctuation' && isCjkText(word.word) && !isPunctuationText(word.word)) {
+                    cjkRunIndices.push(wordIdx);
+                } else {
+                    flushCjkRun();
+                    pushWordItem([wordIdx]);
+                }
             });
+
+            flushCjkRun();
         });
         return newItems;
     }, [segments]);
 
+    const getTargetWordIndices = (item: UIItem): number[] => {
+        const isSingleItemSelection = selection.startId === item.id && selection.endId === item.id;
+        if (isSingleItemSelection && tokenOverride?.itemId === item.id) {
+            return [tokenOverride.wordIndex];
+        }
+        return getItemWordIndices(item);
+    };
+
     // Selection Logic
-    const handleItemClick = (itemId: string, e: React.MouseEvent) => {
+    const handleItemMouseDown = (itemId: string, e: React.MouseEvent) => {
+        if (e.button !== 0) return;
+        e.preventDefault();
+
         // Find the item to get its start time
         const item = items.find(i => i.id === itemId);
 
@@ -135,11 +222,49 @@ export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: E
 
         if (e.shiftKey && selection.startId) {
             setSelection(prev => ({ ...prev, endId: itemId }));
+            dragStartIdRef.current = selection.startId;
         } else {
             setSelection({ startId: itemId, endId: itemId });
+            dragStartIdRef.current = itemId;
             if (item && onSeek) {
                 onSeek(item.start);
             }
+        }
+        setTokenOverride(null);
+        setIsDraggingSelection(true);
+    };
+
+    const handleItemMouseEnter = (itemId: string, e: React.MouseEvent) => {
+        if (!isDraggingSelection || !dragStartIdRef.current) return;
+
+        const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+        setMenuPosition({
+            top: rect.top - 10,
+            left: rect.left + rect.width / 2
+        });
+        setTokenOverride(null);
+        setSelection({ startId: dragStartIdRef.current, endId: itemId });
+    };
+
+    const handleTokenMouseDown = (item: UIItem, wordIndex: number, e: React.MouseEvent) => {
+        if (e.button !== 0) return;
+        e.preventDefault();
+        e.stopPropagation();
+
+        const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+        setMenuPosition({
+            top: rect.top - 10,
+            left: rect.left + rect.width / 2
+        });
+        setSelection({ startId: item.id, endId: item.id });
+        setTokenOverride({ itemId: item.id, wordIndex });
+        setIsDraggingSelection(false);
+        dragStartIdRef.current = null;
+
+        const segment = segments.find((seg) => seg.id === item.segmentId);
+        const token = segment?.words[wordIndex];
+        if (token && onSeek) {
+            onSeek(token.start);
         }
     };
 
@@ -161,6 +286,15 @@ export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: E
         return () => window.removeEventListener('scroll', handleScroll, { capture: true });
     }, []);
 
+    useEffect(() => {
+        const handleMouseUp = () => {
+            setIsDraggingSelection(false);
+            dragStartIdRef.current = null;
+        };
+        window.addEventListener('mouseup', handleMouseUp);
+        return () => window.removeEventListener('mouseup', handleMouseUp);
+    }, []);
+
     // Keyboard Navigation & Actions
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
@@ -177,7 +311,8 @@ export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: E
                 const segIndex = segments.findIndex(s => s.id === item.segmentId);
                 if (segIndex === -1) return;
                 const segment = segments[segIndex];
-                const wordIndex = item.originalWordIndex!; // Verified by item.type === 'word'
+                const itemWordIndices = getItemWordIndices(item);
+                const wordIndex = itemWordIndices[itemWordIndices.length - 1];
 
                 // If it's the last word, nothing to split
                 if (wordIndex >= segment.words.length - 1) return;
@@ -189,14 +324,14 @@ export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: E
                     ...segment,
                     words: words1,
                     end: words1[words1.length - 1].end,
-                    text: words1.map(w => w.word).join(' ')
+                    text: joinTranscriptTokens(words1)
                 };
 
                 const newSeg2: SubtitleSegment = {
                     id: crypto.randomUUID(),
                     start: words2[0].start,
                     end: words2[words2.length - 1].end,
-                    text: words2.map(w => w.word).join(' '),
+                    text: joinTranscriptTokens(words2),
                     words: words2
                 };
 
@@ -215,7 +350,8 @@ export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: E
                 if (segIndex <= 0) return; // Can't merge first segment or not found
 
                 const segment = segments[segIndex];
-                if (item.originalWordIndex !== 0) return; // Must be first word
+                const itemWordIndices = getItemWordIndices(item);
+                if (itemWordIndices[0] !== 0) return; // Must be first word
 
                 e.preventDefault();
                 const prevSegment = segments[segIndex - 1];
@@ -225,7 +361,7 @@ export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: E
                 const mergedSeg: SubtitleSegment = {
                     ...prevSegment,
                     end: segment.end,
-                    text: mergedWords.map(w => w.word).join(' '),
+                    text: joinTranscriptTokens(mergedWords),
                     words: mergedWords
                 };
 
@@ -245,11 +381,12 @@ export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: E
 
         const modificationMap = new Map<string, Set<number>>();
         selectedItemWrappers.forEach(item => {
-            if (item.segmentId && item.originalWordIndex !== undefined) {
+            const indices = getTargetWordIndices(item);
+            if (item.segmentId && indices.length > 0) {
                 if (!modificationMap.has(item.segmentId)) {
                     modificationMap.set(item.segmentId, new Set());
                 }
-                modificationMap.get(item.segmentId)!.add(item.originalWordIndex);
+                indices.forEach((idx) => modificationMap.get(item.segmentId)!.add(idx));
             }
         });
 
@@ -311,9 +448,9 @@ export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: E
                 }
             } else {
                 // Word
-                if (item.originalWordIndex !== undefined) {
-                    segUpdates.set(item.originalWordIndex, { ...segUpdates.get(item.originalWordIndex), isCut: true });
-                }
+                getTargetWordIndices(item).forEach((idx) => {
+                    segUpdates.set(idx, { ...segUpdates.get(idx), isCut: true });
+                });
             }
         });
 
@@ -346,11 +483,18 @@ export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: E
         // If I "Keep Only Selected Text", do I delete other text? Yes.
         // Do I cut other video? Maybe.
         // For now, let's keep it as "Delete Text of Others" (isDeleted=true).
+        const selectedBySegment = new Map<string, Set<number>>();
+        items
+            .filter((item) => selectedIds.includes(item.id) && item.type === 'word')
+            .forEach((item) => {
+                if (!selectedBySegment.has(item.segmentId)) selectedBySegment.set(item.segmentId, new Set());
+                getTargetWordIndices(item).forEach((idx) => selectedBySegment.get(item.segmentId)!.add(idx));
+            });
+
         const newSegments = segments.map(seg => ({
             ...seg,
             words: seg.words.map((w, idx) => {
-                const itemId = `${seg.id}-word-${idx}`;
-                if (selectedIds.includes(itemId)) {
+                if (selectedBySegment.get(seg.id)?.has(idx)) {
                     return w;
                 }
                 return { ...w, isDeleted: true };
@@ -375,14 +519,17 @@ export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: E
             if (!updates.has(item.segmentId)) updates.set(item.segmentId, new Map());
             const segUpdates = updates.get(item.segmentId)!;
 
-            if (item.originalWordIndex !== undefined) {
+            const indices = getTargetWordIndices(item);
+            if (indices.length > 0) {
                 // Unified Restore: Clear Cut, Deleted, and GapCut
                 const restoration = {
                     isDeleted: false,
                     isCut: false,
                     isGapCut: false
                 };
-                segUpdates.set(item.originalWordIndex, { ...segUpdates.get(item.originalWordIndex), ...restoration });
+                indices.forEach((idx) => {
+                    segUpdates.set(idx, { ...segUpdates.get(idx), ...restoration });
+                });
             }
         });
 
@@ -501,14 +648,14 @@ export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: E
             )}
 
             {/* Render Lines */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                 {itemsBySegment.map(([segId, segmentItems]) => {
                     if (segmentItems.length === 0) return null;
                     const startTime = segmentItems[0].start.toFixed(2);
 
                     return (
-                        <div key={segId} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                            <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
+                        <div key={segId} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                            <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
                                 <div style={{
                                     minWidth: 50,
                                     fontSize: '0.75rem',
@@ -537,19 +684,21 @@ export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: E
                                     </button>
                                 </div>
 
-                                <div style={{ flex: 1, display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+                                <div style={{ flex: 1, display: 'flex', flexWrap: 'wrap', columnGap: 3, rowGap: 4, alignItems: 'center' }}>
                                     {segmentItems.map(item => {
                                         const isSelected = selectedIds.includes(item.id);
                                         const isGap = item.type === 'gap';
                                         const color = PRESET_COLORS[item.color] || PRESET_COLORS[0];
+                                        const isTokenOverride = tokenOverride?.itemId === item.id;
 
                                         return (
                                             <span
                                                 key={item.id}
-                                                onClick={(e) => handleItemClick(item.id, e)}
+                                                onMouseDown={(e) => handleItemMouseDown(item.id, e)}
+                                                onMouseEnter={(e) => handleItemMouseEnter(item.id, e)}
                                                 className={`editor-chip ${isGap ? 'gap-chip' : 'word-chip'} ${isSelected ? 'selected' : ''} ${item.isDeleted ? 'deleted' : ''}`}
                                                 style={{
-                                                    padding: isGap ? '2px 6px' : '4px 8px',
+                                                    padding: isGap ? '2px 5px' : '3px 5px',
                                                     borderRadius: 6,
                                                     cursor: 'pointer',
                                                     fontSize: isGap ? '0.75rem' : '1.1rem',
@@ -584,7 +733,30 @@ export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: E
                                                 title={isGap ? (item.isGapCut ? "Cut Gap" : `Silence: ${item.text}`) : `Word: ${item.text}`}
                                             >
                                                 {isGap ? (item.isGapCut ? <Scissors size={10} /> : <MicOff size={10} />) : null}
-                                                {item.text}
+                                                {!isGap && item.parts && item.parts.length > 1 ? (
+                                                    item.parts.map((part) => {
+                                                        const isTargetToken = isTokenOverride && tokenOverride?.wordIndex === part.wordIndex;
+                                                        return (
+                                                            <span
+                                                                key={`${item.id}-${part.wordIndex}`}
+                                                                onMouseDown={(e) => {
+                                                                    if (isSelected) {
+                                                                        handleTokenMouseDown(item, part.wordIndex, e);
+                                                                    }
+                                                                }}
+                                                                style={{
+                                                                    display: 'inline-block',
+                                                                    padding: '0 1px',
+                                                                    borderRadius: 4,
+                                                                    background: isTargetToken ? 'rgba(255,255,255,0.14)' : 'transparent',
+                                                                    outline: isTargetToken ? '1px solid rgba(255,255,255,0.32)' : 'none'
+                                                                }}
+                                                            >
+                                                                {part.text}
+                                                            </span>
+                                                        );
+                                                    })
+                                                ) : item.text}
                                             </span>
                                         );
                                     })}

@@ -5,6 +5,7 @@ import { SubtitleSegment, SegmentWord } from '@/lib/segmentation';
 import { TimeRange, calculatePlayableClips, mapOriginalToPlayableTime } from '@/lib/timelineUtils';
 import { downloadBlob } from '@/lib/exportUtils';
 import Logger from '@/lib/logger';
+import { shouldInsertSpaceBetweenTokens } from '@/lib/transcriptText';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -64,7 +65,7 @@ function renderSubtitleFrame(
     const baseFontSize = Math.round(48 * (width / 1920));
     const padding = Math.round(16 * (width / 1920));
     const hPadding = Math.round(24 * (width / 1920));
-    const wordGap = Math.round(8 * (width / 1920));
+    const wordGap = Math.round(16 * (width / 1920));
     const borderRadius = Math.round(16 * (width / 1920));
 
     // ── Measure total text width ────────────────────────────────────────────
@@ -77,12 +78,15 @@ function renderSubtitleFrame(
         color: string;
         isActive: boolean;
         width: number;
+        gapAfter: number;
     }
 
     const measures: WordMeasure[] = [];
     let totalTextWidth = 0;
 
-    for (const word of visibleWords) {
+    for (let i = 0; i < visibleWords.length; i += 1) {
+        const word = visibleWords[i];
+        const nextWord = visibleWords[i + 1];
         const isActive = originalTime >= word.start && originalTime <= word.end;
         const colorIdx = word.color || 0;
         const color = PRESET_COLORS[colorIdx] || PRESET_COLORS[0];
@@ -92,13 +96,13 @@ function renderSubtitleFrame(
         ctx.font = `${fontWeight} ${fontSize}px "${fontFamily}", system-ui, -apple-system, sans-serif`;
         const tm = ctx.measureText(word.word);
         const w = tm.width;
+        const gapAfter = shouldInsertSpaceBetweenTokens(word.word, nextWord?.word) ? wordGap : 0;
 
-        measures.push({ word, text: word.word, fontSize, fontWeight, color, isActive, width: w });
-        totalTextWidth += w;
+        measures.push({ word, text: word.word, fontSize, fontWeight, color, isActive, width: w, gapAfter });
+        totalTextWidth += w + gapAfter;
     }
 
-    // Add gaps between words
-    const totalWidth = totalTextWidth + (measures.length - 1) * wordGap;
+    const totalWidth = totalTextWidth;
     const pillWidth = totalWidth + hPadding * 2;
     const pillHeight = baseFontSize + padding * 2;
 
@@ -138,7 +142,7 @@ function renderSubtitleFrame(
         }
 
         ctx.fillText(m.text, cursorX, textY);
-        cursorX += m.width + wordGap;
+        cursorX += m.width + m.gapAfter;
 
         ctx.restore();
     }
@@ -409,7 +413,10 @@ export function useOverlayExporter() {
             ]);
 
             const data = await ffmpeg.readFile('output_overlay.mp4');
-            const mp4Blob = new Blob([data as any], { type: 'video/mp4' });
+            const outputBuffer = typeof data === 'string'
+                ? new TextEncoder().encode(data).buffer
+                : new Uint8Array(data).buffer;
+            const mp4Blob = new Blob([outputBuffer], { type: 'video/mp4' });
 
             Logger.info(`[OverlayExport] MP4 output: ${(mp4Blob.size / 1024 / 1024).toFixed(1)}MB`);
 
@@ -422,12 +429,13 @@ export function useOverlayExporter() {
             downloadBlob(mp4Blob, outputFilename);
             setState({ stage: 'done', progress: 100, error: null });
 
-        } catch (error: any) {
+        } catch (error: unknown) {
             Logger.error('[OverlayExport] Export failed', error);
+            const message = error instanceof Error ? error.message : 'Export failed';
             setState({
                 stage: 'error',
                 progress: 0,
-                error: error?.message || 'Export failed',
+                error: message,
             });
         }
     }, []);

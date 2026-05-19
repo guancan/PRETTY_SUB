@@ -1,6 +1,6 @@
 'use client';
 
-import { CheckCircle2, AlertCircle, Sparkles } from 'lucide-react';
+import { CheckCircle2, AlertCircle, Sparkles, type LucideIcon } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { Loader2 } from 'lucide-react';
 import { useLanguage } from '@/contexts/LanguageContext';
@@ -19,10 +19,19 @@ interface SegmentationStatusBadgeProps {
   aiModel?: string;
 }
 
+type StatusConfig = {
+  icon: LucideIcon;
+  text: string | ((model?: string) => string);
+  bg: string;
+  border: string;
+  color: string;
+  spin?: boolean;
+};
+
 export function SegmentationStatusBadge({ status, aiModel }: SegmentationStatusBadgeProps) {
   const { t } = useLanguage();
 
-  const statusConfig = {
+  const statusConfig: Record<Exclude<SegmentationStatus, 'idle'>, StatusConfig> = {
     'ai-started': {
       icon: Sparkles,
       text: t('segmentation.status.aiStarted'),
@@ -104,7 +113,7 @@ export function SegmentationStatusBadge({ status, aiModel }: SegmentationStatusB
   );
 }
 
-const SpinningIcon = ({ icon: Icon, size }: { icon: any; size: number }) => (
+const SpinningIcon = ({ icon: Icon, size }: { icon: LucideIcon; size: number }) => (
   <motion.div
     animate={{ rotate: 360 }}
     transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}

@@ -1,4 +1,5 @@
 import type { TranscriptionWord } from '@/actions/transcribe';
+import { getTranscriptTextLength, isPunctuationText, joinTranscriptTokens } from './transcriptText';
 
 export interface SegmentWord extends TranscriptionWord {
     // Enhanced properties for the editor
@@ -60,19 +61,44 @@ export function segmentWords(words: TranscriptionWord[], options: SegmentationOp
 
     const segments: SubtitleSegment[] = [];
     let currentWords: SegmentWord[] = [];
-    let currentChars = 0;
     let currentStartTime = 0;
 
-    words.forEach((word, index) => {
+    const pushCurrentSegment = () => {
+        if (currentWords.length === 0) return;
+        segments.push({
+            id: crypto.randomUUID(),
+            text: joinTranscriptTokens(currentWords).trim(),
+            start: currentWords[0].start,
+            end: currentWords[currentWords.length - 1].end,
+            words: [...currentWords]
+        });
+        currentWords = [];
+        currentStartTime = 0;
+    };
+
+    words.forEach((word) => {
+        const segmentWord = toSegmentWord(word);
+        const isPunctuation = word.kind === 'punctuation' || isPunctuationText(word.word);
+
         // 1. Initialize first word of a segment
         if (currentWords.length === 0) {
-            currentWords.push(toSegmentWord(word));
-            currentChars = word.word.length;
+            currentWords.push(segmentWord);
             currentStartTime = word.start;
             return;
         }
 
-        const prevWord = currentWords[currentWords.length - 1];
+        if (isPunctuation) {
+            currentWords = [...currentWords, segmentWord];
+            const shouldSplitAfterPunctuation =
+                PUNCT_SPLIT &&
+                /[.!?。！？]$/.test(word.word) &&
+                getTranscriptTextLength(currentWords) > PUNCT_MIN_CHARS;
+
+            if (shouldSplitAfterPunctuation) {
+                pushCurrentSegment();
+            }
+            return;
+        }
 
         // Logic to decide if we should split
         // Condition A: Time gap (silence) > 0.5s ? (Optional, maybe for later)
@@ -80,43 +106,27 @@ export function segmentWords(words: TranscriptionWord[], options: SegmentationOp
         // Condition C: Max duration exceeded
 
         // Check accumulated length
-        const newLength = currentChars + 1 + word.word.length; // +1 for space
+        const nextWords = [...currentWords, segmentWord];
+        const newLength = getTranscriptTextLength(nextWords);
         const duration = word.end - currentStartTime;
 
         const shouldSplit =
             newLength > MAX_CHARS ||
-            duration > MAX_DURATION ||
-            (PUNCT_SPLIT && word.word.match(/[.!?。！？]$/) && newLength > PUNCT_MIN_CHARS); // End of sentence punctuation and reasonable length
+            duration > MAX_DURATION;
 
         if (shouldSplit) {
-            // Push current segment
-            segments.push({
-                id: crypto.randomUUID(),
-                text: currentWords.map(w => w.word).join(' ').trim(),
-                start: currentWords[0].start,
-                end: currentWords[currentWords.length - 1].end,
-                words: [...currentWords]
-            });
-
+            pushCurrentSegment();
             // Start new segment with current word
-            currentWords = [toSegmentWord(word)];
-            currentChars = word.word.length;
+            currentWords = [segmentWord];
             currentStartTime = word.start;
         } else {
-            currentWords.push(toSegmentWord(word));
-            currentChars = newLength;
+            currentWords = nextWords;
         }
     });
 
     // Push remaining words
     if (currentWords.length > 0) {
-        segments.push({
-            id: crypto.randomUUID(),
-            text: currentWords.map(w => w.word).join(' ').trim(),
-            start: currentWords[0].start,
-            end: currentWords[currentWords.length - 1].end,
-            words: [...currentWords]
-        });
+        pushCurrentSegment();
     }
 
     return segments;
@@ -130,9 +140,22 @@ export function buildSegmentsFromRanges(words: TranscriptionWord[], ranges: Segm
         .filter((slice) => slice.length > 0)
         .map((slice) => ({
             id: crypto.randomUUID(),
-            text: slice.map((w) => w.word).join(' ').trim(),
+            text: joinTranscriptTokens(slice).trim(),
             start: slice[0].start,
             end: slice[slice.length - 1].end,
             words: slice.map(toSegmentWord)
         }));
+}
+
+export function buildSegmentsFromProviderUtterances(
+    words: TranscriptionWord[],
+    utterances: { wordStartIndex: number; wordEndIndex: number }[]
+): SubtitleSegment[] {
+    return buildSegmentsFromRanges(
+        words,
+        utterances.map((utterance) => ({
+            startIndex: utterance.wordStartIndex,
+            endIndex: utterance.wordEndIndex,
+        }))
+    );
 }
