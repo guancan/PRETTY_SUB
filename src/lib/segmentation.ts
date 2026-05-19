@@ -7,6 +7,8 @@ export interface SegmentWord extends TranscriptionWord {
     isDeleted?: boolean; // Text deleted, video plays
     isCut?: boolean;     // Video cut, text hidden
     isGapCut?: boolean;  // Preceding gap cut
+    textEditGroupId?: string;
+    textEditOriginalText?: string;
 }
 
 export interface SubtitleSegment {
@@ -49,6 +51,7 @@ export const normalizeSegmentationOptions = (input: Partial<SegmentationOptions>
 // Helper to init a SegmentWord with default editor flags.
 const toSegmentWord = (w: TranscriptionWord): SegmentWord => ({
     ...w,
+    originalWord: w.originalWord ?? w.word,
     color: 0,
     isDeleted: false
 });

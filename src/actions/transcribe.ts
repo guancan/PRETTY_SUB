@@ -7,6 +7,7 @@ export type TranscriptionTokenKind = 'speech' | 'punctuation';
 
 export type TranscriptionWord = {
     word: string;
+    originalWord?: string;
     start: number;
     end: number;
     kind?: TranscriptionTokenKind;

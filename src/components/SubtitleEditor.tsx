@@ -27,11 +27,20 @@ interface UIItem {
     originalWordIndex?: number; // Pointer back to segment.words index
     originalWordIndices?: number[]; // Pointer back to all token indices represented by this chip
     parts?: { text: string; wordIndex: number }[];
+    textEditGroupId?: string;
+    textEditOriginalText?: string;
 }
 
 interface SelectionState {
     startId: string | null;
     endId: string | null;
+}
+
+interface EditingTarget {
+    itemId: string;
+    segmentId: string;
+    indices: number[];
+    text: string;
 }
 
 const PRESET_COLORS = [
@@ -45,6 +54,45 @@ const getItemWordIndices = (item: UIItem): number[] => (
     item.originalWordIndices ?? (item.originalWordIndex !== undefined ? [item.originalWordIndex] : [])
 );
 
+const joinOriginalWords = (words: SegmentWord[]): string => {
+    const editGroupId = words[0]?.textEditGroupId;
+    if (editGroupId && words.every((word) => word.textEditGroupId === editGroupId)) {
+        const editOriginalText = words.find((word) => word.textEditOriginalText !== undefined)?.textEditOriginalText;
+        if (editOriginalText !== undefined) return editOriginalText;
+    }
+
+    return joinTranscriptTokens(words.map((word) => ({ word: word.originalWord ?? word.word })));
+};
+
+const splitEditedTextIntoTimingUnits = (text: string): string[] => {
+    const units: string[] = [];
+    let bufferedText = '';
+
+    const flushBufferedText = () => {
+        if (!bufferedText) return;
+        units.push(bufferedText);
+        bufferedText = '';
+    };
+
+    Array.from(text).forEach((char) => {
+        if (!char.trim()) {
+            flushBufferedText();
+            return;
+        }
+
+        if (isCjkText(char) || isPunctuationText(char)) {
+            flushBufferedText();
+            units.push(char);
+            return;
+        }
+
+        bufferedText += char;
+    });
+
+    flushBufferedText();
+    return units;
+};
+
 export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: EditorProps) {
     const { t } = useLanguage();
 
@@ -56,6 +104,8 @@ export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: E
     const [expandedLayoutId, setExpandedLayoutId] = useState<string | null>(null);
     const [isDraggingSelection, setIsDraggingSelection] = useState(false);
     const [tokenOverride, setTokenOverride] = useState<{ itemId: string; wordIndex: number } | null>(null);
+    const [editingTarget, setEditingTarget] = useState<EditingTarget | null>(null);
+    const editInputRef = useRef<HTMLInputElement | null>(null);
     const dragStartIdRef = useRef<string | null>(null);
 
     // Calculate display items (Memoized purely for display)
@@ -68,11 +118,19 @@ export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: E
             const pushWordItem = (indices: number[]) => {
                 if (indices.length === 0) return;
 
-                const groupWords = indices.map((idx) => seg.words[idx]);
+                const seenIndices = new Set<number>();
+                const normalizedIndices = indices.filter((idx) => {
+                    if (seenIndices.has(idx)) return false;
+                    seenIndices.add(idx);
+                    return true;
+                });
+                if (normalizedIndices.length === 0) return;
+
+                const groupWords = normalizedIndices.map((idx) => seg.words[idx]);
                 const firstWord = groupWords[0];
                 const lastWord = groupWords[groupWords.length - 1];
-                const firstIndex = indices[0];
-                const lastIndex = indices[indices.length - 1];
+                const firstIndex = normalizedIndices[0];
+                const lastIndex = normalizedIndices[normalizedIndices.length - 1];
                 const coloredWord = groupWords.find((word) => word.color && word.color > 0);
 
                 newItems.push({
@@ -87,15 +145,17 @@ export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: E
                     color: coloredWord?.color || 0,
                     segmentId: seg.id,
                     originalWordIndex: firstIndex,
-                    originalWordIndices: indices,
+                    originalWordIndices: normalizedIndices,
                     parts: groupWords.map((word, idx) => ({
                         text: word.word,
-                        wordIndex: indices[idx]
-                    }))
+                        wordIndex: normalizedIndices[idx]
+                    })),
+                    textEditGroupId: firstWord.textEditGroupId,
+                    textEditOriginalText: firstWord.textEditOriginalText,
                 });
             };
 
-            const pushCjkRun = (indices: number[]) => {
+            const pushPlainCjkRun = (indices: number[]) => {
                 if (indices.length === 0) return;
 
                 if (typeof Intl === 'undefined' || typeof Intl.Segmenter === 'undefined') {
@@ -103,30 +163,95 @@ export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: E
                     return;
                 }
 
-                const runWords = indices.map((idx) => seg.words[idx]);
-                const runText = joinTranscriptTokens(runWords);
-                const offsets = new Map<number, number>();
-                let cursor = 0;
+                const pushSegmentedCharRun = (charRunIndices: number[]) => {
+                    if (charRunIndices.length === 0) return;
 
-                indices.forEach((idx) => {
-                    offsets.set(idx, cursor);
-                    cursor += Array.from(seg.words[idx].word).length;
-                });
+                    const runWords = charRunIndices.map((idx) => seg.words[idx]);
+                    const runText = joinTranscriptTokens(runWords);
+                    const offsets = new Map<number, number>();
+                    let cursor = 0;
 
-                const segmenter = new Intl.Segmenter('zh', { granularity: 'word' });
-                Array.from(segmenter.segment(runText)).forEach((part) => {
-                    const partStart = part.index;
-                    const partEnd = part.index + Array.from(part.segment).length;
-                    const groupIndices = indices.filter((idx) => {
-                        const tokenStart = offsets.get(idx) ?? 0;
-                        const tokenEnd = tokenStart + Array.from(seg.words[idx].word).length;
-                        return tokenStart < partEnd && tokenEnd > partStart;
+                    charRunIndices.forEach((idx) => {
+                        offsets.set(idx, cursor);
+                        cursor += Array.from(seg.words[idx].word).length;
                     });
 
-                    if (groupIndices.length > 0) {
-                        pushWordItem(groupIndices);
+                    const emittedGroups = new Set<string>();
+                    const segmenter = new Intl.Segmenter('zh', { granularity: 'word' });
+                    Array.from(segmenter.segment(runText)).forEach((part) => {
+                        const partStart = part.index;
+                        const partEnd = part.index + Array.from(part.segment).length;
+                        const groupIndices = charRunIndices.filter((idx) => {
+                            const tokenStart = offsets.get(idx) ?? 0;
+                            const tokenEnd = tokenStart + Array.from(seg.words[idx].word).length;
+                            return tokenStart < partEnd && tokenEnd > partStart;
+                        });
+
+                        const groupKey = groupIndices.join('-');
+                        if (groupIndices.length > 0 && !emittedGroups.has(groupKey)) {
+                            emittedGroups.add(groupKey);
+                            pushWordItem(groupIndices);
+                        }
+                    });
+                };
+
+                let charRunIndices: number[] = [];
+                const flushCharRun = () => {
+                    pushSegmentedCharRun(charRunIndices);
+                    charRunIndices = [];
+                };
+
+                indices.forEach((idx) => {
+                    if (Array.from(seg.words[idx].word).length === 1) {
+                        charRunIndices.push(idx);
+                        return;
                     }
+
+                    flushCharRun();
+                    pushWordItem([idx]);
                 });
+
+                flushCharRun();
+            };
+
+            const pushCjkRun = (indices: number[]) => {
+                if (indices.length === 0) return;
+
+                let plainRunIndices: number[] = [];
+                let editRunIndices: number[] = [];
+                let currentEditGroupId: string | undefined;
+
+                const flushPlainRun = () => {
+                    pushPlainCjkRun(plainRunIndices);
+                    plainRunIndices = [];
+                };
+
+                const flushEditRun = () => {
+                    pushWordItem(editRunIndices);
+                    editRunIndices = [];
+                    currentEditGroupId = undefined;
+                };
+
+                indices.forEach((idx) => {
+                    const editGroupId = seg.words[idx].textEditGroupId;
+                    if (editGroupId) {
+                        flushPlainRun();
+                        if (currentEditGroupId && currentEditGroupId !== editGroupId) {
+                            flushEditRun();
+                        }
+                        currentEditGroupId = editGroupId;
+                        editRunIndices.push(idx);
+                        return;
+                    }
+
+                    if (editRunIndices.length > 0) {
+                        flushEditRun();
+                    }
+                    plainRunIndices.push(idx);
+                });
+
+                flushEditRun();
+                flushPlainRun();
             };
 
             let cjkRunIndices: number[] = [];
@@ -144,6 +269,11 @@ export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: E
                     if (prevSeg.words.length > 0) {
                         prevEnd = prevSeg.words[prevSeg.words.length - 1].end;
                     }
+                }
+
+                if (!word.word) {
+                    flushCjkRun();
+                    return;
                 }
 
                 // Start Gap
@@ -202,6 +332,172 @@ export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: E
             return [tokenOverride.wordIndex];
         }
         return getItemWordIndices(item);
+    };
+
+    const getTextForIndices = (segmentId: string, indices: number[]) => {
+        const segment = segments.find((seg) => seg.id === segmentId);
+        if (!segment) return '';
+        return joinTranscriptTokens(indices.map((idx) => segment.words[idx]).filter(Boolean));
+    };
+
+    const getOriginalTextForIndices = (segmentId: string, indices: number[]) => {
+        const segment = segments.find((seg) => seg.id === segmentId);
+        if (!segment) return '';
+        return joinOriginalWords(indices.map((idx) => segment.words[idx]).filter(Boolean));
+    };
+
+    const updateWordsText = (segmentId: string, indices: number[], text: string) => {
+        if (indices.length === 0) return;
+
+        const sortedIndices = Array.from(new Set(indices)).sort((a, b) => a - b);
+        const isContiguous = sortedIndices.every((idx, position) => (
+            position === 0 || idx === sortedIndices[position - 1] + 1
+        ));
+
+        const newSegments = segments.map((seg) => {
+            if (seg.id !== segmentId) return seg;
+
+            const selectedWords = sortedIndices.map((idx) => seg.words[idx]).filter(Boolean);
+            if (selectedWords.length === 0) return seg;
+
+            const selectedHasCjk = selectedWords.some((word) => isCjkText(word.word));
+            const replacementUnits = splitEditedTextIntoTimingUnits(text);
+            const shouldReplaceRange =
+                isContiguous &&
+                (sortedIndices.length > 1 || (replacementUnits.length > 1 && (selectedHasCjk || isCjkText(text))));
+
+            if (shouldReplaceRange) {
+                const firstSelectedIndex = sortedIndices[0];
+                const selectedCount = sortedIndices.length;
+                const firstWord = selectedWords[0];
+                const lastWord = selectedWords[selectedWords.length - 1];
+                const editGroupId = crypto.randomUUID();
+                const originalText = joinOriginalWords(selectedWords);
+                const timeStart = firstWord.start;
+                const timeEnd = lastWord.end;
+                const duration = Math.max(0, timeEnd - timeStart);
+                const units = replacementUnits.length > 0 ? replacementUnits : [''];
+
+                const replacementWords = units.map((unit, unitIndex): SegmentWord => {
+                    const sourcePosition = Math.min(
+                        Math.floor(unitIndex * selectedWords.length / units.length),
+                        selectedWords.length - 1
+                    );
+                    const sourceWord = selectedWords[sourcePosition] ?? firstWord;
+                    const unitStart = units.length === 1
+                        ? timeStart
+                        : timeStart + (duration * unitIndex / units.length);
+                    const unitEnd = unitIndex === units.length - 1
+                        ? timeEnd
+                        : timeStart + (duration * (unitIndex + 1) / units.length);
+                    const originalWord = selectedWords[unitIndex]?.originalWord ?? selectedWords[unitIndex]?.word ?? '';
+
+                    return {
+                        ...sourceWord,
+                        word: unit,
+                        originalWord,
+                        start: unitStart,
+                        end: unitEnd,
+                        kind: isPunctuationText(unit) ? 'punctuation' : 'speech',
+                        textEditGroupId: editGroupId,
+                        textEditOriginalText: originalText,
+                    };
+                });
+
+                const nextWords = [...seg.words];
+                nextWords.splice(firstSelectedIndex, selectedCount, ...replacementWords);
+
+                return {
+                    ...seg,
+                    text: joinTranscriptTokens(nextWords),
+                    words: nextWords,
+                };
+            }
+
+            const nextWords = seg.words.map((word, idx) => {
+                const selectedPosition = sortedIndices.indexOf(idx);
+                if (selectedPosition === -1) return word;
+
+                const originalWord = word.originalWord ?? word.word;
+                return { ...word, word: text, originalWord };
+            });
+
+            return {
+                ...seg,
+                text: joinTranscriptTokens(nextWords),
+                words: nextWords,
+            };
+        });
+
+        onSegmentsChange(newSegments);
+    };
+
+    const beginTextEdit = (item: UIItem, indices: number[], e: React.MouseEvent) => {
+        if (item.type !== 'word' || indices.length === 0) return;
+        e.preventDefault();
+        e.stopPropagation();
+
+        const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+        setMenuPosition({
+            top: rect.top - 10,
+            left: rect.left + rect.width / 2
+        });
+        setSelection({ startId: item.id, endId: item.id });
+        setTokenOverride(null);
+        setEditingTarget({
+            itemId: item.id,
+            segmentId: item.segmentId,
+            indices,
+            text: getTextForIndices(item.segmentId, indices),
+        });
+        setIsDraggingSelection(false);
+        dragStartIdRef.current = null;
+    };
+
+    const commitTextEdit = () => {
+        if (!editingTarget) return;
+        updateWordsText(editingTarget.segmentId, editingTarget.indices, editingTarget.text);
+        setEditingTarget(null);
+    };
+
+    const cancelTextEdit = () => {
+        setEditingTarget(null);
+    };
+
+    const getSelectedIds = () => {
+        if (!selection.startId || !selection.endId) return [];
+        const startIndex = items.findIndex(w => w.id === selection.startId);
+        const endIndex = items.findIndex(w => w.id === selection.endId);
+        if (startIndex === -1 || endIndex === -1) return [];
+        const start = Math.min(startIndex, endIndex);
+        const end = Math.max(startIndex, endIndex);
+        return items.slice(start, end + 1).map(w => w.id);
+    };
+    const selectedIds = getSelectedIds();
+
+    const activeTextInfo = (() => {
+        if (selectedIds.length !== 1) return null;
+
+        const item = items.find((candidate) => candidate.id === selectedIds[0]);
+        if (!item || item.type !== 'word') return null;
+
+        const indices = getTargetWordIndices(item);
+        const currentText = getTextForIndices(item.segmentId, indices);
+        const originalText = getOriginalTextForIndices(item.segmentId, indices);
+
+        return {
+            item,
+            indices,
+            currentText,
+            originalText,
+            isEdited: currentText !== originalText,
+        };
+    })();
+
+    const undoTextEdit = () => {
+        if (!activeTextInfo) return;
+        updateWordsText(activeTextInfo.item.segmentId, activeTextInfo.indices, activeTextInfo.originalText);
+        setEditingTarget(null);
     };
 
     // Selection Logic
@@ -268,17 +564,6 @@ export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: E
         }
     };
 
-    const getSelectedIds = () => {
-        if (!selection.startId || !selection.endId) return [];
-        const startIndex = items.findIndex(w => w.id === selection.startId);
-        const endIndex = items.findIndex(w => w.id === selection.endId);
-        if (startIndex === -1 || endIndex === -1) return [];
-        const start = Math.min(startIndex, endIndex);
-        const end = Math.max(startIndex, endIndex);
-        return items.slice(start, end + 1).map(w => w.id);
-    };
-    const selectedIds = useMemo(() => getSelectedIds(), [selection, items]);
-
     // Hide menu if clicked outside or scroll (basic handling)
     useEffect(() => {
         const handleScroll = () => setMenuPosition(null);
@@ -294,6 +579,12 @@ export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: E
         window.addEventListener('mouseup', handleMouseUp);
         return () => window.removeEventListener('mouseup', handleMouseUp);
     }, []);
+
+    useEffect(() => {
+        if (!editingTarget) return;
+        editInputRef.current?.focus();
+        editInputRef.current?.select();
+    }, [editingTarget]);
 
     // Keyboard Navigation & Actions
     useEffect(() => {
@@ -635,6 +926,32 @@ export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: E
                         <Check size={14} /> <span>{t('editor.restore')}</span>
                     </button>
 
+                    {activeTextInfo && !selectedIds.some(id => id.includes('gap')) && (
+                        <>
+                            <div style={{ height: 1, background: 'rgba(255,255,255,0.05)', margin: '2px 0' }} />
+                            <div style={{ padding: '6px 8px', maxWidth: 220 }}>
+                                <div style={{ fontSize: '0.68rem', color: '#777', marginBottom: 3 }}>原结果</div>
+                                <div style={{
+                                    fontSize: '0.78rem',
+                                    color: 'var(--text-secondary)',
+                                    lineHeight: 1.4,
+                                    wordBreak: 'break-word'
+                                }}>
+                                    {activeTextInfo.originalText || '空'}
+                                </div>
+                                {activeTextInfo.isEdited && (
+                                    <button
+                                        onClick={undoTextEdit}
+                                        className="btn-editor-action vertical restore"
+                                        style={{ marginTop: 6, width: '100%' }}
+                                    >
+                                        <Check size={14} /> <span>撤销文案编辑</span>
+                                    </button>
+                                )}
+                            </div>
+                        </>
+                    )}
+
                     <div style={{ height: 1, background: 'rgba(255,255,255,0.05)', margin: '2px 0' }} />
 
                     {/* Close / Info */}
@@ -684,21 +1001,23 @@ export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: E
                                     </button>
                                 </div>
 
-                                <div style={{ flex: 1, display: 'flex', flexWrap: 'wrap', columnGap: 3, rowGap: 4, alignItems: 'center' }}>
+                                <div style={{ flex: 1, display: 'flex', flexWrap: 'wrap', columnGap: 1, rowGap: 3, alignItems: 'center' }}>
                                     {segmentItems.map(item => {
                                         const isSelected = selectedIds.includes(item.id);
                                         const isGap = item.type === 'gap';
                                         const color = PRESET_COLORS[item.color] || PRESET_COLORS[0];
                                         const isTokenOverride = tokenOverride?.itemId === item.id;
+                                        const isEditing = editingTarget?.itemId === item.id;
 
                                         return (
                                             <span
                                                 key={item.id}
                                                 onMouseDown={(e) => handleItemMouseDown(item.id, e)}
                                                 onMouseEnter={(e) => handleItemMouseEnter(item.id, e)}
+                                                onDoubleClick={(e) => beginTextEdit(item, getItemWordIndices(item), e)}
                                                 className={`editor-chip ${isGap ? 'gap-chip' : 'word-chip'} ${isSelected ? 'selected' : ''} ${item.isDeleted ? 'deleted' : ''}`}
                                                 style={{
-                                                    padding: isGap ? '2px 5px' : '3px 5px',
+                                                    padding: isGap ? '2px 4px' : '2px 3px',
                                                     borderRadius: 6,
                                                     cursor: 'pointer',
                                                     fontSize: isGap ? '0.75rem' : '1.1rem',
@@ -733,7 +1052,38 @@ export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: E
                                                 title={isGap ? (item.isGapCut ? "Cut Gap" : `Silence: ${item.text}`) : `Word: ${item.text}`}
                                             >
                                                 {isGap ? (item.isGapCut ? <Scissors size={10} /> : <MicOff size={10} />) : null}
-                                                {!isGap && item.parts && item.parts.length > 1 ? (
+                                                {isEditing ? (
+                                                    <input
+                                                        ref={editInputRef}
+                                                        value={editingTarget.text}
+                                                        onChange={(e) => setEditingTarget(prev => prev ? { ...prev, text: e.target.value } : prev)}
+                                                        onMouseDown={(e) => e.stopPropagation()}
+                                                        onDoubleClick={(e) => e.stopPropagation()}
+                                                        onBlur={commitTextEdit}
+                                                        onKeyDown={(e) => {
+                                                            if (e.key === 'Enter') {
+                                                                e.preventDefault();
+                                                                commitTextEdit();
+                                                            }
+                                                            if (e.key === 'Escape') {
+                                                                e.preventDefault();
+                                                                cancelTextEdit();
+                                                            }
+                                                        }}
+                                                        style={{
+                                                            width: `${Math.max(2, editingTarget.text.length)}em`,
+                                                            minWidth: 32,
+                                                            maxWidth: 180,
+                                                            background: 'rgba(255,255,255,0.08)',
+                                                            border: '1px solid rgba(255,255,255,0.28)',
+                                                            borderRadius: 4,
+                                                            color: 'inherit',
+                                                            font: 'inherit',
+                                                            padding: '0 3px',
+                                                            outline: 'none'
+                                                        }}
+                                                    />
+                                                ) : !isGap && item.parts && item.parts.length > 1 ? (
                                                     item.parts.map((part) => {
                                                         const isTargetToken = isTokenOverride && tokenOverride?.wordIndex === part.wordIndex;
                                                         return (
@@ -746,7 +1096,7 @@ export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: E
                                                                 }}
                                                                 style={{
                                                                     display: 'inline-block',
-                                                                    padding: '0 1px',
+                                                                    padding: '0',
                                                                     borderRadius: 4,
                                                                     background: isTargetToken ? 'rgba(255,255,255,0.14)' : 'transparent',
                                                                     outline: isTargetToken ? '1px solid rgba(255,255,255,0.32)' : 'none'
