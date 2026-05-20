@@ -19,6 +19,9 @@ export interface SubtitleSegment {
     end: number;
     words: SegmentWord[];
     yPosition?: number; // 0-100 percentage from top
+    speakerId?: string;
+    speakerName?: string;
+    channelId?: number;
 }
 
 export interface SegmentationOptions {
@@ -38,6 +41,8 @@ export const DEFAULT_SEGMENTATION_OPTIONS: Required<SegmentationOptions> = {
 export interface SegmentRange {
     startIndex: number;
     endIndex: number;
+    speakerId?: string;
+    channelId?: number;
 }
 
 export const normalizeSegmentationOptions = (input: Partial<SegmentationOptions>): SegmentationOptions => {
@@ -57,6 +62,46 @@ const toSegmentWord = (w: TranscriptionWord): SegmentWord => ({
     isDeleted: false
 });
 
+const getDominantSpeakerId = (words: TranscriptionWord[]): string | undefined => {
+    const counts = new Map<string, number>();
+
+    words.forEach((word) => {
+        if (!word.speakerId) return;
+        counts.set(word.speakerId, (counts.get(word.speakerId) ?? 0) + 1);
+    });
+
+    let dominantId: string | undefined;
+    let dominantCount = 0;
+    counts.forEach((count, id) => {
+        if (count > dominantCount) {
+            dominantId = id;
+            dominantCount = count;
+        }
+    });
+
+    return dominantId;
+};
+
+const getDominantChannelId = (words: TranscriptionWord[]): number | undefined => {
+    const counts = new Map<number, number>();
+
+    words.forEach((word) => {
+        if (word.channelId === undefined) return;
+        counts.set(word.channelId, (counts.get(word.channelId) ?? 0) + 1);
+    });
+
+    let dominantId: number | undefined;
+    let dominantCount = 0;
+    counts.forEach((count, id) => {
+        if (count > dominantCount) {
+            dominantId = id;
+            dominantCount = count;
+        }
+    });
+
+    return dominantId;
+};
+
 export function segmentWords(words: TranscriptionWord[], options: SegmentationOptions = {}): SubtitleSegment[] {
     const MAX_CHARS = options.maxCharsPerLine ?? DEFAULT_SEGMENTATION_OPTIONS.maxCharsPerLine; // 默认每行最大字符数
     const MAX_DURATION = options.maxDurationSeconds ?? DEFAULT_SEGMENTATION_OPTIONS.maxDurationSeconds; // 默认每段最大时长
@@ -74,7 +119,9 @@ export function segmentWords(words: TranscriptionWord[], options: SegmentationOp
             text: joinTranscriptTokens(currentWords).trim(),
             start: currentWords[0].start,
             end: currentWords[currentWords.length - 1].end,
-            words: [...currentWords]
+            words: [...currentWords],
+            speakerId: getDominantSpeakerId(currentWords),
+            channelId: getDominantChannelId(currentWords),
         });
         currentWords = [];
         currentStartTime = 0;
@@ -140,26 +187,33 @@ export function buildSegmentsFromRanges(words: TranscriptionWord[], ranges: Segm
     if (ranges.length === 0) return [];
 
     return ranges
-        .map((range) => words.slice(range.startIndex, range.endIndex + 1))
-        .filter((slice) => slice.length > 0)
-        .map((slice) => ({
+        .map((range) => ({
+            range,
+            words: words.slice(range.startIndex, range.endIndex + 1),
+        }))
+        .filter((entry) => entry.words.length > 0)
+        .map(({ range, words: slice }) => ({
             id: crypto.randomUUID(),
             text: joinTranscriptTokens(slice).trim(),
             start: slice[0].start,
             end: slice[slice.length - 1].end,
-            words: slice.map(toSegmentWord)
+            words: slice.map(toSegmentWord),
+            speakerId: range.speakerId ?? getDominantSpeakerId(slice),
+            channelId: range.channelId ?? getDominantChannelId(slice),
         }));
 }
 
 export function buildSegmentsFromProviderUtterances(
     words: TranscriptionWord[],
-    utterances: { wordStartIndex: number; wordEndIndex: number }[]
+    utterances: { wordStartIndex: number; wordEndIndex: number; speakerId?: string; channelId?: number }[]
 ): SubtitleSegment[] {
     return buildSegmentsFromRanges(
         words,
         utterances.map((utterance) => ({
             startIndex: utterance.wordStartIndex,
             endIndex: utterance.wordEndIndex,
+            speakerId: utterance.speakerId,
+            channelId: utterance.channelId,
         }))
     );
 }

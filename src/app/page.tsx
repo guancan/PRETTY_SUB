@@ -63,6 +63,7 @@ export default function Home() {
   const [selectedFont, setSelectedFont] = useState(GOOGLE_FONTS[0].family);
   const [globalYPosition, setGlobalYPosition] = useState(80); // Default 80% from top
   const [isTranscribing, setIsTranscribing] = useState(false);
+  const [enableSpeakerDiarization, setEnableSpeakerDiarization] = useState(false);
   const [processingStage, setProcessingStage] = useState<'idle' | 'transcribing' | 'segmenting'>('idle');
   const [isResegmenting, setIsResegmenting] = useState(false);
   const [showRaw, setShowRaw] = useState(false);
@@ -335,6 +336,7 @@ export default function Home() {
       const formData = new FormData();
       const audioFilename = audioBlob instanceof File ? audioBlob.name : 'audio.mp3';
       formData.append('file', audioBlob, audioFilename);
+      formData.append('enableSpeakerDiarization', enableSpeakerDiarization ? 'true' : 'false');
 
       const result = await transcribeAudio(formData);
       if (result) {
@@ -561,6 +563,42 @@ export default function Home() {
                           </div>
                         )}
                       </div>
+
+                      <label
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          gap: 12,
+                          marginBottom: 16,
+                          paddingBottom: 16,
+                          borderBottom: '1px solid var(--border-subtle)',
+                          cursor: isTranscribing ? 'not-allowed' : 'pointer',
+                          opacity: isTranscribing ? 0.6 : 1,
+                        }}
+                      >
+                        <span style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                          <span style={{ fontSize: '0.9rem', color: 'var(--text-primary)', fontWeight: 600 }}>
+                            {t('transcription.speakerDiarization')}
+                          </span>
+                          <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', lineHeight: 1.45 }}>
+                            {t('transcription.speakerDiarizationHelp')}
+                          </span>
+                        </span>
+                        <input
+                          type="checkbox"
+                          checked={enableSpeakerDiarization}
+                          disabled={isTranscribing}
+                          onChange={(event) => setEnableSpeakerDiarization(event.target.checked)}
+                          style={{
+                            width: 18,
+                            height: 18,
+                            accentColor: 'var(--accent-primary)',
+                            flex: '0 0 auto',
+                            cursor: isTranscribing ? 'not-allowed' : 'pointer',
+                          }}
+                        />
+                      </label>
 
                       {/* Generate button */}
                       <button

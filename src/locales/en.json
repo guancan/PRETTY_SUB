@@ -23,7 +23,9 @@
     "regenerate": "Regenerate Segments",
     "regenerating": "Processing...",
     "generated": "Generated {count} subtitle segments",
-    "confirmRegenerate": "Regenerating segments will overwrite current edits. Continue?"
+    "confirmRegenerate": "Regenerating segments will overwrite current edits. Continue?",
+    "speakerDiarization": "Detect Speakers",
+    "speakerDiarizationHelp": "Use for multi-speaker audio; speaker data is captured for upcoming labels."
   },
   "segmentation": {
     "rules": "Segmentation Rules",
@@ -66,7 +68,8 @@
     "yAxis": "Y-Axis",
     "default": "Default",
     "reset": "Reset",
-    "selected": "{count} selected"
+    "selected": "{count} selected",
+    "speakerLabel": "Speaker {id}"
   },
   "style": {
     "title": "Subtitle Style",

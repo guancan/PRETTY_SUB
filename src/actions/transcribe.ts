@@ -12,6 +12,8 @@ export type TranscriptionWord = {
     end: number;
     kind?: TranscriptionTokenKind;
     confidence?: number;
+    speakerId?: string;
+    channelId?: number;
 };
 
 export type TranscriptionUtterance = {
@@ -20,6 +22,8 @@ export type TranscriptionUtterance = {
     end: number;
     wordStartIndex: number;
     wordEndIndex: number;
+    speakerId?: string;
+    channelId?: number;
 };
 
 export type TranscriptionResponse = {
@@ -29,6 +33,7 @@ export type TranscriptionResponse = {
     provider: TranscriptionProvider;
     model?: string;
     logId?: string | null;
+    speakerDiarizationEnabled?: boolean;
 };
 
 type DoubaoWord = {
@@ -36,6 +41,11 @@ type DoubaoWord = {
     start_time?: number;
     end_time?: number;
     confidence?: number;
+    speaker?: string | number;
+    speaker_id?: string | number;
+    speakerId?: string | number;
+    channel_id?: number;
+    additions?: Record<string, unknown>;
 };
 
 type DoubaoUtterance = {
@@ -43,6 +53,11 @@ type DoubaoUtterance = {
     start_time?: number;
     end_time?: number;
     words?: DoubaoWord[];
+    speaker?: string | number;
+    speaker_id?: string | number;
+    speakerId?: string | number;
+    channel_id?: number;
+    additions?: Record<string, unknown>;
 };
 
 type WhisperWord = {
@@ -61,6 +76,10 @@ type WhisperResponse = {
     text?: string;
     words?: WhisperWord[];
     segments?: WhisperSegment[];
+};
+
+type TranscriptionOptions = {
+    enableSpeakerDiarization?: boolean;
 };
 
 const msToSeconds = (value: unknown): number => {
@@ -91,6 +110,8 @@ const pushPunctuationTokens = (params: {
     chars: string[];
     anchorMs: number;
     words: TranscriptionWord[];
+    speakerId?: string;
+    channelId?: number;
 }) => {
     const time = msToSeconds(params.anchorMs);
     params.chars.forEach((char) => {
@@ -100,8 +121,32 @@ const pushPunctuationTokens = (params: {
             start: time,
             end: time,
             kind: 'punctuation',
+            speakerId: params.speakerId,
+            channelId: params.channelId,
         });
     });
+};
+
+const readSpeakerId = (value: DoubaoWord | DoubaoUtterance): string | undefined => {
+    const candidates = [
+        value.speaker_id,
+        value.speakerId,
+        value.speaker,
+        value.additions?.speaker_id,
+        value.additions?.speakerId,
+        value.additions?.speaker,
+    ];
+
+    for (const candidate of candidates) {
+        if (typeof candidate === 'string' && candidate.trim()) {
+            return candidate.trim();
+        }
+        if (typeof candidate === 'number' && Number.isFinite(candidate)) {
+            return String(candidate);
+        }
+    }
+
+    return undefined;
 };
 
 const parseDoubaoUtterance = (
@@ -111,6 +156,8 @@ const parseDoubaoUtterance = (
     const text = utterance.text ?? '';
     const rawWords = Array.isArray(utterance.words) ? utterance.words : [];
     const wordStartIndex = words.length;
+    const utteranceSpeakerId = readSpeakerId(utterance);
+    const utteranceChannelId = utterance.channel_id;
 
     if (rawWords.length === 0 && text.trim()) {
         words.push({
@@ -118,6 +165,8 @@ const parseDoubaoUtterance = (
             start: msToSeconds(utterance.start_time),
             end: msToSeconds(utterance.end_time),
             kind: 'speech',
+            speakerId: utteranceSpeakerId,
+            channelId: utteranceChannelId,
         });
     } else {
         const chars = Array.from(text);
@@ -135,17 +184,22 @@ const parseDoubaoUtterance = (
                     chars: chars.slice(cursor, matchStart),
                     anchorMs: previousEndMs,
                     words,
+                    speakerId: utteranceSpeakerId,
+                    channelId: utteranceChannelId,
                 });
             }
 
             const startMs = rawWord.start_time ?? utterance.start_time ?? previousEndMs;
             const endMs = rawWord.end_time ?? rawWord.start_time ?? startMs;
+            const speakerId = readSpeakerId(rawWord) ?? utteranceSpeakerId;
             words.push({
                 word: tokenText,
                 start: msToSeconds(startMs),
                 end: msToSeconds(endMs),
                 kind: 'speech',
                 confidence: rawWord.confidence,
+                speakerId,
+                channelId: rawWord.channel_id ?? utteranceChannelId,
             });
 
             previousEndMs = endMs;
@@ -157,6 +211,8 @@ const parseDoubaoUtterance = (
                 chars: chars.slice(cursor),
                 anchorMs: previousEndMs,
                 words,
+                speakerId: utteranceSpeakerId,
+                channelId: utteranceChannelId,
             });
         }
     }
@@ -170,10 +226,12 @@ const parseDoubaoUtterance = (
         end: msToSeconds(utterance.end_time ?? words[wordEndIndex].end * 1000),
         wordStartIndex,
         wordEndIndex,
+        speakerId: utteranceSpeakerId,
+        channelId: utteranceChannelId,
     };
 };
 
-async function transcribeWithDoubao(file: File): Promise<TranscriptionResponse> {
+async function transcribeWithDoubao(file: File, options: TranscriptionOptions = {}): Promise<TranscriptionResponse> {
     if (!config.doubaoApiKey) {
         throw new Error('DOUBAO_API_KEY is not set');
     }
@@ -203,6 +261,7 @@ async function transcribeWithDoubao(file: File): Promise<TranscriptionResponse> 
                 enable_itn: true,
                 enable_punc: true,
                 enable_ddc: false,
+                ...(options.enableSpeakerDiarization ? { enable_speaker_info: true } : {}),
             },
         }),
     });
@@ -227,6 +286,18 @@ async function transcribeWithDoubao(file: File): Promise<TranscriptionResponse> 
     const rawUtterances: DoubaoUtterance[] = Array.isArray(data?.result?.utterances)
         ? data.result.utterances
         : [];
+
+    if (options.enableSpeakerDiarization) {
+        const speakerIds = Array.from(
+            new Set(rawUtterances.map(readSpeakerId).filter((speakerId): speakerId is string => Boolean(speakerId)))
+        );
+        console.info('Doubao speaker diarization result', {
+            logId,
+            utterances: rawUtterances.length,
+            speakers: speakerIds,
+        });
+    }
+
     const words: TranscriptionWord[] = [];
     const utterances = rawUtterances
         .map((utterance) => parseDoubaoUtterance(utterance, words))
@@ -248,6 +319,7 @@ async function transcribeWithDoubao(file: File): Promise<TranscriptionResponse> 
         provider: 'doubao-flash',
         model: 'bigmodel',
         logId,
+        speakerDiarizationEnabled: options.enableSpeakerDiarization,
     };
 }
 
@@ -318,6 +390,7 @@ async function transcribeWithWhisper(file: File): Promise<TranscriptionResponse>
 
 export async function transcribeAudio(formData: FormData): Promise<TranscriptionResponse | null> {
     const file = formData.get('file') as File;
+    const enableSpeakerDiarization = formData.get('enableSpeakerDiarization') === 'true';
 
     if (!file) {
         console.error('No file provided for transcription');
@@ -326,7 +399,7 @@ export async function transcribeAudio(formData: FormData): Promise<Transcription
 
     try {
         if (config.transcriptionProvider === 'doubao-flash') {
-            return await transcribeWithDoubao(file);
+            return await transcribeWithDoubao(file, { enableSpeakerDiarization });
         }
 
         return await transcribeWithWhisper(file);

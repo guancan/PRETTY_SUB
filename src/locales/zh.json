@@ -23,7 +23,9 @@
     "regenerate": "重新生成分段",
     "regenerating": "处理中",
     "generated": "已生成 {count} 个字幕片段",
-    "confirmRegenerate": "重新生成分段会覆盖当前编辑内容。是否继续？"
+    "confirmRegenerate": "重新生成分段会覆盖当前编辑内容。是否继续？",
+    "speakerDiarization": "识别说话人",
+    "speakerDiarizationHelp": "多人对话时开启；当前先记录识别结果，后续用于说话人标注。"
   },
   "segmentation": {
     "rules": "分段规则",
@@ -66,7 +68,8 @@
     "yAxis": "Y轴",
     "default": "默认",
     "reset": "重置",
-    "selected": "{count} 已选择"
+    "selected": "{count} 已选择",
+    "speakerLabel": "说话人 {id}"
   },
   "fontSelector": {
     "title": "字体选择"

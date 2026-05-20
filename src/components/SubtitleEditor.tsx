@@ -1027,6 +1027,9 @@ export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: E
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                 {itemsBySegment.map(([segId, segmentItems]) => {
                     if (segmentItems.length === 0) return null;
+                    const currentSegment = segments.find(s => s.id === segId);
+                    const speakerName = currentSegment?.speakerName ?? currentSegment?.speakerId;
+                    const speakerLabel = speakerName ? t('editor.speakerLabel', { id: speakerName }) : null;
                     const startTime = segmentItems[0].start.toFixed(2);
 
                     return (
@@ -1043,6 +1046,24 @@ export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: E
                                     flexDirection: 'column',
                                     gap: 4
                                 }}>
+                                    {speakerLabel && (
+                                        <span style={{
+                                            alignSelf: 'flex-start',
+                                            maxWidth: 62,
+                                            overflow: 'hidden',
+                                            textOverflow: 'ellipsis',
+                                            whiteSpace: 'nowrap',
+                                            border: '1px solid rgba(255,255,255,0.12)',
+                                            borderRadius: 5,
+                                            padding: '2px 4px',
+                                            fontFamily: 'inherit',
+                                            fontSize: '0.68rem',
+                                            color: 'var(--accent-primary)',
+                                            opacity: 0.9
+                                        }}>
+                                            {speakerLabel}
+                                        </span>
+                                    )}
                                     <span>{startTime}</span>
                                     <button
                                         onClick={() => setExpandedLayoutId(expandedLayoutId === segId ? null : segId)}
@@ -1174,9 +1195,7 @@ export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: E
 
                             {/* Layout Slider Row */}
                             {expandedLayoutId === segId && (() => {
-                                // Find segment to get current Y
-                                const currentSeg = segments.find(s => s.id === segId);
-                                const currentY = currentSeg?.yPosition;
+                                const currentY = currentSegment?.yPosition;
 
                                 return (
                                     <div style={{ marginLeft: 66, marginBottom: 16, padding: '8px 12px', background: 'rgba(255,255,255,0.03)', borderRadius: 8, display: 'flex', alignItems: 'center', gap: 12 }}>
