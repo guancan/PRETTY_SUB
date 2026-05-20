@@ -51,6 +51,14 @@ const PRESET_COLORS = [
     '#3b82f6', // Blue
 ];
 
+const SPEAKER_TAG_COLORS = [
+    { text: '#8b9cff', border: 'rgba(139, 156, 255, 0.38)', background: 'rgba(139, 156, 255, 0.12)' },
+    { text: '#22d3ee', border: 'rgba(34, 211, 238, 0.36)', background: 'rgba(34, 211, 238, 0.11)' },
+    { text: '#f59e0b', border: 'rgba(245, 158, 11, 0.38)', background: 'rgba(245, 158, 11, 0.11)' },
+    { text: '#fb7185', border: 'rgba(251, 113, 133, 0.36)', background: 'rgba(251, 113, 133, 0.10)' },
+    { text: '#34d399', border: 'rgba(52, 211, 153, 0.34)', background: 'rgba(52, 211, 153, 0.10)' },
+];
+
 const getItemWordIndices = (item: UIItem): number[] => (
     item.originalWordIndices ?? (item.originalWordIndex !== undefined ? [item.originalWordIndex] : [])
 );
@@ -326,6 +334,17 @@ export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: E
             flushCjkRun();
         });
         return newItems;
+    }, [segments]);
+
+    const speakerColorById = useMemo(() => {
+        const speakerIds = new Map<string, number>();
+
+        segments.forEach((segment) => {
+            if (!segment.speakerId || speakerIds.has(segment.speakerId)) return;
+            speakerIds.set(segment.speakerId, speakerIds.size % SPEAKER_TAG_COLORS.length);
+        });
+
+        return speakerIds;
     }, [segments]);
 
     const getTargetWordIndices = (item: UIItem): number[] => {
@@ -1030,18 +1049,20 @@ export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: E
                     const currentSegment = segments.find(s => s.id === segId);
                     const speakerName = currentSegment?.speakerName ?? currentSegment?.speakerId;
                     const speakerLabel = speakerName ? t('editor.speakerLabel', { id: speakerName }) : null;
+                    const speakerTone = currentSegment?.speakerId
+                        ? SPEAKER_TAG_COLORS[speakerColorById.get(currentSegment.speakerId) ?? 0]
+                        : null;
                     const startTime = segmentItems[0].start.toFixed(2);
 
                     return (
                         <div key={segId} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                             <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
                                 <div style={{
-                                    minWidth: 50,
+                                    minWidth: 76,
                                     fontSize: '0.75rem',
                                     color: 'var(--text-secondary)',
                                     paddingTop: 6,
                                     fontFamily: 'monospace',
-                                    opacity: 0.7,
                                     display: 'flex',
                                     flexDirection: 'column',
                                     gap: 4
@@ -1053,18 +1074,20 @@ export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: E
                                             overflow: 'hidden',
                                             textOverflow: 'ellipsis',
                                             whiteSpace: 'nowrap',
-                                            border: '1px solid rgba(255,255,255,0.12)',
+                                            border: `1px solid ${speakerTone?.border ?? 'rgba(255,255,255,0.12)'}`,
                                             borderRadius: 5,
-                                            padding: '2px 4px',
+                                            padding: '2px 6px',
                                             fontFamily: 'inherit',
                                             fontSize: '0.68rem',
-                                            color: 'var(--accent-primary)',
-                                            opacity: 0.9
+                                            lineHeight: 1.25,
+                                            color: speakerTone?.text ?? 'var(--accent-primary)',
+                                            background: speakerTone?.background ?? 'transparent',
+                                            opacity: 1
                                         }}>
                                             {speakerLabel}
                                         </span>
                                     )}
-                                    <span>{startTime}</span>
+                                    <span style={{ opacity: 0.7 }}>{startTime}</span>
                                     <button
                                         onClick={() => setExpandedLayoutId(expandedLayoutId === segId ? null : segId)}
                                         title={t('editor.adjustPosition')}
