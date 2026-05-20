@@ -9,8 +9,8 @@ type TranslationFunction = (key: string, params?: Record<string, string | number
 
 export const CONFIG = {
   format: {
-    recommended: ['mp4', 'webm', 'mov'],
-    acceptable: ['avi', 'mkv', 'flv', 'wmv'],
+    recommended: ['mp4', 'webm', 'mov', 'mp3', 'wav', 'm4a'],
+    acceptable: ['avi', 'mkv', 'flv', 'wmv', 'aac', 'flac', 'ogg', 'oga', 'opus'],
   },
   fileSize: {
     recommended: 200 * 1024 * 1024,   // 200MB

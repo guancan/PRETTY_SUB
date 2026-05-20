@@ -17,6 +17,8 @@ interface ExportPanelProps {
     onExportVideo: () => void;
     /** Callback to export overlay video */
     onExportOverlay: () => void;
+    /** Whether source media supports video exports */
+    videoExportsEnabled?: boolean;
     /** Video export state from hook */
     videoExportState: VideoExportState;
     /** Overlay export state from hook */
@@ -176,6 +178,7 @@ export default function ExportPanel({
     onExportSrt,
     onExportVideo,
     onExportOverlay,
+    videoExportsEnabled = true,
     videoExportState,
     overlayExportState,
     onResetExport,
@@ -212,11 +215,11 @@ export default function ExportPanel({
                 {t('export.title')}
             </div>
 
-            <div style={{
-                display: 'grid',
-                gridTemplateColumns: '1fr 1fr 1fr',
-                gap: 16,
-            }}>
+	            <div style={{
+	                display: 'grid',
+	                gridTemplateColumns: videoExportsEnabled ? '1fr 1fr 1fr' : '1fr',
+	                gap: 16,
+	            }}>
                 {/* SRT Export Card */}
                 <ExportCard
                     onClick={onExportSrt}
@@ -234,54 +237,58 @@ export default function ExportPanel({
                     hoverBg="rgba(34, 197, 94, 0.06)"
                 />
 
-                {/* Trimmed Video Export Card */}
-                <ExportCard
-                    onClick={() => {
-                        if (isVideoDone || isVideoError) {
-                            onResetExport();
-                        } else if (!isVideoExporting) {
-                            onExportVideo();
-                        }
-                    }}
-                    disabled={isOverlayExporting}
-                    isExporting={isVideoExporting}
-                    isDone={isVideoDone}
-                    isError={isVideoError}
-                    progress={videoExportState.progress}
-                    stageLabel={videoStageLabel}
-                    icon={<Film size={24} color="#6366f1" />}
-                    iconColor="#6366f1"
-                    title={t('export.videoTitle')}
-                    description={hasCuts ? t('export.videoDescriptionWithCuts') : t('export.videoDescriptionNoCuts')}
-                    errorText={videoExportState.error || undefined}
-                    hoverColor="#6366f1"
-                    hoverBg="rgba(99, 102, 241, 0.06)"
-                />
+	                {videoExportsEnabled && (
+	                    <>
+	                        {/* Trimmed Video Export Card */}
+	                        <ExportCard
+	                            onClick={() => {
+	                                if (isVideoDone || isVideoError) {
+	                                    onResetExport();
+	                                } else if (!isVideoExporting) {
+	                                    onExportVideo();
+	                                }
+	                            }}
+	                            disabled={isOverlayExporting}
+	                            isExporting={isVideoExporting}
+	                            isDone={isVideoDone}
+	                            isError={isVideoError}
+	                            progress={videoExportState.progress}
+	                            stageLabel={videoStageLabel}
+	                            icon={<Film size={24} color="#6366f1" />}
+	                            iconColor="#6366f1"
+	                            title={t('export.videoTitle')}
+	                            description={hasCuts ? t('export.videoDescriptionWithCuts') : t('export.videoDescriptionNoCuts')}
+	                            errorText={videoExportState.error || undefined}
+	                            hoverColor="#6366f1"
+	                            hoverBg="rgba(99, 102, 241, 0.06)"
+	                        />
 
-                {/* Overlay (Burned-in Subtitles) Export Card */}
-                <ExportCard
-                    onClick={() => {
-                        if (isOverlayDone || isOverlayError) {
-                            onResetOverlayExport();
-                        } else if (!isOverlayExporting) {
-                            onExportOverlay();
-                        }
-                    }}
-                    disabled={isVideoExporting}
-                    isExporting={isOverlayExporting}
-                    isDone={isOverlayDone}
-                    isError={isOverlayError}
-                    progress={overlayExportState.progress}
-                    stageLabel={overlayStageLabel}
-                    icon={<Clapperboard size={24} color="#f59e0b" />}
-                    iconColor="#f59e0b"
-                    title={t('export.overlayTitle')}
-                    description={t('export.overlayDescription')}
-                    errorText={overlayExportState.error || undefined}
-                    hoverColor="#f59e0b"
-                    hoverBg="rgba(245, 158, 11, 0.06)"
-                />
-            </div>
+	                        {/* Overlay (Burned-in Subtitles) Export Card */}
+	                        <ExportCard
+	                            onClick={() => {
+	                                if (isOverlayDone || isOverlayError) {
+	                                    onResetOverlayExport();
+	                                } else if (!isOverlayExporting) {
+	                                    onExportOverlay();
+	                                }
+	                            }}
+	                            disabled={isVideoExporting}
+	                            isExporting={isOverlayExporting}
+	                            isDone={isOverlayDone}
+	                            isError={isOverlayError}
+	                            progress={overlayExportState.progress}
+	                            stageLabel={overlayStageLabel}
+	                            icon={<Clapperboard size={24} color="#f59e0b" />}
+	                            iconColor="#f59e0b"
+	                            title={t('export.overlayTitle')}
+	                            description={t('export.overlayDescription')}
+	                            errorText={overlayExportState.error || undefined}
+	                            hoverColor="#f59e0b"
+	                            hoverBg="rgba(245, 158, 11, 0.06)"
+	                        />
+	                    </>
+	                )}
+	            </div>
         </div>
     );
 }

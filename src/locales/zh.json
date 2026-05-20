@@ -2,15 +2,18 @@
   "appName": "PRETTY SUB",
   "appDescription": "AI 驱动的动态字幕视频编辑器",
   "upload": {
-    "title": "点击上传视频",
-    "requirements": "文件格式要求：MP4/AVI/MOV/MKV/FLV/WMV，不大于 2GB，30 分钟以内",
-    "recommended": "推荐 15 分钟以内的 MP4",
+    "title": "点击上传音频或视频",
+    "requirements": "文件格式要求：MP3/WAV/M4A/MP4/AVI/MOV/MKV/FLV/WMV，不大于 2GB，30 分钟以内",
+    "recommended": "推荐 15 分钟以内的 MP3、WAV 或 MP4",
     "reupload": "重新上传"
   },
   "metadata": {
     "loading": "正在加载元数据...",
     "extracting": "正在提取音频...",
-    "ready": "音频已提取，准备好生成字幕。"
+    "ready": "音频已准备好，可以生成字幕。",
+    "audioFile": "音频文件",
+    "durationUnknown": "时长待识别",
+    "previewUnavailable": "当前格式可能无法预览"
   },
   "transcription": {
     "title": "获取字幕",
@@ -78,13 +81,13 @@
     "fileTooLarge": "文件不符合要求",
     "fileTooLargeMessage": "文件过大（{size}，最大 2GB）",
     "audioExtractionFailed": "音频提取失败",
-    "audioExtractionFailedMessage": "无法从视频中提取音频。请确保视频文件包含音频轨道，然后重试。",
+    "audioExtractionFailedMessage": "无法读取该文件中的音频。请确保文件包含可识别的音频轨道，然后重试。",
     "fileProcessingFailed": "文件处理失败",
-    "fileProcessingFailedMessage": "无法处理此视频文件。请尝试其他文件。"
+    "fileProcessingFailedMessage": "无法处理此媒体文件。请尝试其他文件。"
   },
   "dialogs": {
-    "reuploadTitle": "重新上传视频",
-    "reuploadMessage": "重新上传将清理当前视频及所有处理结果。此操作不可撤销。",
+    "reuploadTitle": "重新上传文件",
+    "reuploadMessage": "重新上传将清理当前文件及所有处理结果。此操作不可撤销。",
     "confirm": "确认",
     "cancel": "取消",
     "error": {
@@ -97,7 +100,7 @@
   "status": {
     "fileRejected": "文件已拒绝。",
     "audioExtractionFailed": "音频提取失败。",
-    "processingFailed": "视频处理失败。",
+    "processingFailed": "媒体处理失败。",
     "transcribing": "正在转录音频（可能需要一点时间）...",
     "generatingSegments": "正在生成分段...",
     "regeneratingSegments": "正在重新生成分段...",
@@ -110,7 +113,7 @@
     "durationTooLong": "时长超限（最大{duration}）",
     "sizeRecommendation": "推荐 < {recommendedSize}（当前{currentSize}）",
     "durationRecommendation": "推荐 5-{recommendedDuration}（当前{currentDuration}分钟）",
-    "formatRecommendation": "推荐 MP4 格式",
+    "formatRecommendation": "推荐 MP3、WAV 或 MP4 格式",
     "processingTimeWarning": "推荐 {recommendations}，当前文件处理时间会稍长一些",
     "minutes": "分钟"
   },

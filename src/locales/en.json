@@ -2,15 +2,18 @@
   "appName": "PRETTY SUB",
   "appDescription": "AI-Powered Video Editor with Dynamic Subtitles",
   "upload": {
-    "title": "Click to Upload Video",
-    "requirements": "File format requirements: MP4/AVI/MOV/MKV/FLV/WMV, max 2GB, within 30 minutes",
-    "recommended": "Recommended: MP4 within 15 minutes",
+    "title": "Click to Upload Audio or Video",
+    "requirements": "File format requirements: MP3/WAV/M4A/MP4/AVI/MOV/MKV/FLV/WMV, max 2GB, within 30 minutes",
+    "recommended": "Recommended: MP3, WAV, or MP4 within 15 minutes",
     "reupload": "Reupload"
   },
   "metadata": {
     "loading": "Loading metadata...",
     "extracting": "Extracting audio...",
-    "ready": "Audio extracted. Ready to generate subtitles."
+    "ready": "Audio ready. Ready to generate subtitles.",
+    "audioFile": "Audio file",
+    "durationUnknown": "Duration pending",
+    "previewUnavailable": "Preview may be unavailable for this format"
   },
   "transcription": {
     "title": "Get Subtitles",
@@ -78,13 +81,13 @@
     "fileTooLarge": "File does not meet requirements",
     "fileTooLargeMessage": "File too large ({size}, max 2GB)",
     "audioExtractionFailed": "Audio extraction failed",
-    "audioExtractionFailedMessage": "Unable to extract audio from video. Please ensure the video file contains an audio track and try again.",
+    "audioExtractionFailedMessage": "Unable to read audio from this file. Please ensure it contains a recognizable audio track and try again.",
     "fileProcessingFailed": "File processing failed",
-    "fileProcessingFailedMessage": "Unable to process this video file. Please try another file."
+    "fileProcessingFailedMessage": "Unable to process this media file. Please try another file."
   },
   "dialogs": {
-    "reuploadTitle": "Reupload Video",
-    "reuploadMessage": "Reuploading will clear the current video and all processing results. This action cannot be undone.",
+    "reuploadTitle": "Reupload File",
+    "reuploadMessage": "Reuploading will clear the current file and all processing results. This action cannot be undone.",
     "confirm": "Confirm",
     "cancel": "Cancel",
     "error": {
@@ -97,7 +100,7 @@
   "status": {
     "fileRejected": "File rejected.",
     "audioExtractionFailed": "Audio extraction failed.",
-    "processingFailed": "Failed to process video.",
+    "processingFailed": "Failed to process media.",
     "transcribing": "Transcribing audio (this may take a moment)...",
     "generatingSegments": "Generating segments...",
     "regeneratingSegments": "Regenerating segments...",
@@ -110,7 +113,7 @@
     "durationTooLong": "Duration exceeds limit (max {duration})",
     "sizeRecommendation": "Recommend < {recommendedSize} (current {currentSize})",
     "durationRecommendation": "Recommend 5-{recommendedDuration} (current {currentDuration} minutes)",
-    "formatRecommendation": "Recommend MP4 format",
+    "formatRecommendation": "Recommend MP3, WAV, or MP4 format",
     "processingTimeWarning": "Recommend {recommendations}, current file processing time will be longer",
     "minutes": "minutes"
   },

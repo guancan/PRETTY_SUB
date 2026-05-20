@@ -42,33 +42,44 @@ export function useAudioExtractor() {
         const ffmpeg = ffmpegRef.current;
         if (!ffmpeg) return null;
 
+        const inputName = 'input_media';
+        const outputName = 'output.mp3';
+
         try {
             Logger.info(`Starting audio extraction for ${videoFile.name}`);
-            await ffmpeg.writeFile('input.mp4', await fetchFile(videoFile));
+            await ffmpeg.writeFile(inputName, await fetchFile(videoFile));
 
             // Extract audio optimized for Whisper speech recognition
             // -ac 1: Convert to mono (single channel)
             // -ar 16000: 16kHz sample rate (Whisper's native rate)
             // -b:a 64k: 64 kbps constant bitrate (sufficient for speech)
-            // -map 0:a: Extract audio track only
+            // -map 0:a:0: Extract the first audio track only
             await ffmpeg.exec([
-                '-i', 'input.mp4',
-                '-map', '0:a',
+                '-i', inputName,
+                '-map', '0:a:0',
                 '-acodec', 'libmp3lame',
                 '-ac', '1',
                 '-ar', '16000',
                 '-b:a', '64k',
-                'output.mp3'
+                outputName
             ]);
 
-            const data = await ffmpeg.readFile('output.mp3');
-            const blob = new Blob([data as any], { type: 'audio/mp3' });
+            const data = await ffmpeg.readFile(outputName);
+            const outputBytes = typeof data === 'string' ? new TextEncoder().encode(data) : data;
+            const outputBuffer = outputBytes.buffer.slice(
+                outputBytes.byteOffset,
+                outputBytes.byteOffset + outputBytes.byteLength
+            ) as ArrayBuffer;
+            const blob = new Blob([outputBuffer], { type: 'audio/mpeg' });
 
             Logger.info('Audio extraction complete');
             return blob;
         } catch (error) {
             Logger.error('Extraction error', error);
             return null;
+        } finally {
+            await ffmpeg.deleteFile(inputName).catch(() => undefined);
+            await ffmpeg.deleteFile(outputName).catch(() => undefined);
         }
     };
 

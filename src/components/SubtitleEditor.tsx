@@ -27,6 +27,7 @@ interface UIItem {
     originalWordIndex?: number; // Pointer back to segment.words index
     originalWordIndices?: number[]; // Pointer back to all token indices represented by this chip
     parts?: { text: string; wordIndex: number }[];
+    displayGroupId?: string;
     textEditGroupId?: string;
     textEditOriginalText?: string;
 }
@@ -150,6 +151,7 @@ export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: E
                         text: word.word,
                         wordIndex: normalizedIndices[idx]
                     })),
+                    displayGroupId: firstWord.displayGroupId,
                     textEditGroupId: firstWord.textEditGroupId,
                     textEditOriginalText: firstWord.textEditOriginalText,
                 });
@@ -233,7 +235,7 @@ export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: E
                 };
 
                 indices.forEach((idx) => {
-                    const editGroupId = seg.words[idx].textEditGroupId;
+                    const editGroupId = seg.words[idx].displayGroupId ?? seg.words[idx].textEditGroupId;
                     if (editGroupId) {
                         flushPlainRun();
                         if (currentEditGroupId && currentEditGroupId !== editGroupId) {
@@ -399,6 +401,7 @@ export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: E
                         start: unitStart,
                         end: unitEnd,
                         kind: isPunctuationText(unit) ? 'punctuation' : 'speech',
+                        displayGroupId: undefined,
                         textEditGroupId: editGroupId,
                         textEditOriginalText: originalText,
                     };
@@ -699,6 +702,77 @@ export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: E
         onSegmentsChange(newSegments);
     };
 
+    const mergeWordPatch = (
+        updates: Map<string, Map<number, Partial<SegmentWord>>>,
+        segmentId: string,
+        wordIndex: number,
+        patch: Partial<SegmentWord>
+    ) => {
+        if (!updates.has(segmentId)) updates.set(segmentId, new Map());
+        const segmentUpdates = updates.get(segmentId)!;
+        segmentUpdates.set(wordIndex, { ...segmentUpdates.get(wordIndex), ...patch });
+    };
+
+    const addDisplaySplitPatches = (
+        updates: Map<string, Map<number, Partial<SegmentWord>>>,
+        item: UIItem,
+        targetIndices: number[]
+    ) => {
+        const itemIndices = getItemWordIndices(item);
+        if (targetIndices.length === 0 || targetIndices.length >= itemIndices.length) return;
+
+        const targetSet = new Set(targetIndices);
+        let currentIsTarget: boolean | null = null;
+        let currentGroupId = '';
+
+        itemIndices.forEach((idx) => {
+            const isTarget = targetSet.has(idx);
+            if (currentIsTarget !== isTarget) {
+                currentIsTarget = isTarget;
+                currentGroupId = crypto.randomUUID();
+            }
+
+            mergeWordPatch(updates, item.segmentId, idx, {
+                displayGroupId: currentGroupId,
+                textEditGroupId: undefined,
+                textEditOriginalText: undefined,
+            });
+        });
+    };
+
+    const applyWordPatches = (updates: Map<string, Map<number, Partial<SegmentWord>>>) => {
+        const newSegments = segments.map(seg => {
+            if (!updates.has(seg.id)) return seg;
+            const segmentUpdates = updates.get(seg.id)!;
+            const nextWords = seg.words.map((w, idx) => (
+                segmentUpdates.has(idx) ? { ...w, ...segmentUpdates.get(idx) } : w
+            ));
+
+            return {
+                ...seg,
+                text: joinTranscriptTokens(nextWords),
+                words: nextWords
+            };
+        });
+
+        onSegmentsChange(newSegments);
+    };
+
+    const applySelectedWordTokenAction = (patch: Partial<SegmentWord>) => {
+        const selectedItemWrappers = items.filter(i => selectedIds.includes(i.id) && i.type === 'word');
+        const updates = new Map<string, Map<number, Partial<SegmentWord>>>();
+
+        selectedItemWrappers.forEach((item) => {
+            const targetIndices = getTargetWordIndices(item);
+            addDisplaySplitPatches(updates, item, targetIndices);
+            targetIndices.forEach((idx) => {
+                mergeWordPatch(updates, item.segmentId, idx, patch);
+            });
+        });
+
+        applyWordPatches(updates);
+    };
+
     // Action: Cut (Video + Text)
     const cutSelected = () => {
         // Updated logic to handle Gap Selection? 
@@ -710,9 +784,6 @@ export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: E
         const updates = new Map<string, Map<number, Partial<SegmentWord>>>();
 
         selectedItemWrappers.forEach(item => {
-            if (!updates.has(item.segmentId)) updates.set(item.segmentId, new Map());
-            const segUpdates = updates.get(item.segmentId)!;
-
             if (item.type === 'gap') {
                 // Gap logic: Gap ID gap-{segId}-{wordIdx} OR gap-start
                 // Wait, gap-start is gap before word 0.
@@ -735,36 +806,24 @@ export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: E
 
                 // Let's assume we update useMemo below.
                 if (item.originalWordIndex !== undefined) {
-                    segUpdates.set(item.originalWordIndex, { ...segUpdates.get(item.originalWordIndex), isGapCut: true });
+                    mergeWordPatch(updates, item.segmentId, item.originalWordIndex, { isGapCut: true });
                 }
             } else {
                 // Word
-                getTargetWordIndices(item).forEach((idx) => {
-                    segUpdates.set(idx, { ...segUpdates.get(idx), isCut: true });
+                const targetIndices = getTargetWordIndices(item);
+                addDisplaySplitPatches(updates, item, targetIndices);
+                targetIndices.forEach((idx) => {
+                    mergeWordPatch(updates, item.segmentId, idx, { isCut: true });
                 });
             }
         });
 
-        const newSegments = segments.map(seg => {
-            if (!updates.has(seg.id)) return seg;
-            const segMap = updates.get(seg.id)!;
-            return {
-                ...seg,
-                words: seg.words.map((w, idx) => {
-                    if (segMap.has(idx)) {
-                        return { ...w, ...segMap.get(idx) };
-                    }
-                    return w;
-                })
-            };
-        });
-        onSegmentsChange(newSegments);
+        applyWordPatches(updates);
     };
 
     // Action: Delete (Text only)
     const deleteSelected = () => {
-        // Only affects words
-        modifyWords(w => ({ ...w, isDeleted: true }));
+        applySelectedWordTokenAction({ isDeleted: true });
     };
 
     const keepOnlySelected = () => {

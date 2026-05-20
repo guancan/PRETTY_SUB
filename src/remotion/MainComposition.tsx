@@ -1,18 +1,21 @@
 import React from 'react';
-import { AbsoluteFill, Video, Series } from 'remotion';
+import { AbsoluteFill, Audio, Video, Series } from 'remotion';
 import { SubtitleSegment } from '@/lib/segmentation';
 import { calculatePlayableClips } from '@/lib/timelineUtils';
 import { DynamicCaptions } from './DynamicCaptions';
+import type { MediaKind } from '@/lib/videoUtils';
 
 export interface MainCompositionProps {
     videoUrl: string;
+    mediaKind?: MediaKind;
+    mediaCanPreview?: boolean;
     segments: SubtitleSegment[];
     fontFamily?: string;
     videoDurationSeconds?: number; // Optional but recommended for accurate cuts
     globalYPosition?: number;
 }
 
-export const MainComposition: React.FC<MainCompositionProps> = ({ videoUrl, segments, fontFamily, videoDurationSeconds, globalYPosition }) => {
+export const MainComposition: React.FC<MainCompositionProps> = ({ videoUrl, mediaKind = 'video', mediaCanPreview = true, segments, fontFamily, videoDurationSeconds, globalYPosition }) => {
     // Calculate clips on each render
     // If videoDurationSeconds is missing, default to a high number or try to estimate
     // Ideally we pass it from Page
@@ -36,12 +39,20 @@ export const MainComposition: React.FC<MainCompositionProps> = ({ videoUrl, segm
                             durationInFrames={Math.ceil((clip.end - clip.start) * 30)}
                         >
                             <AbsoluteFill>
-                                <Video
-                                    src={videoUrl}
-                                    startFrom={Math.ceil(clip.start * 30)}
-                                    endAt={Math.ceil(clip.end * 30)}
-                                // volume={1} // Default
-                                />
+                                {mediaKind === 'audio' ? (
+                                    <Audio
+                                        src={videoUrl}
+                                        startFrom={Math.ceil(clip.start * 30)}
+                                        endAt={Math.ceil(clip.end * 30)}
+                                    />
+                                ) : mediaCanPreview ? (
+                                    <Video
+                                        src={videoUrl}
+                                        startFrom={Math.ceil(clip.start * 30)}
+                                        endAt={Math.ceil(clip.end * 30)}
+                                    // volume={1} // Default
+                                    />
+                                ) : null}
                                 <DynamicCaptions
                                     segments={segments}
                                     fontFamily={fontFamily}

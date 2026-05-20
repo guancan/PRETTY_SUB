@@ -1,21 +1,78 @@
-export const getVideoMetadata = (file: File): Promise<{ width: number; height: number; durationInSeconds: number }> => {
-    return new Promise((resolve, reject) => {
-        const video = document.createElement('video');
-        video.preload = 'metadata';
-        video.onloadedmetadata = () => {
+export type MediaKind = 'audio' | 'video';
+
+export type MediaMetadata = {
+    width: number;
+    height: number;
+    durationInSeconds: number;
+    kind: MediaKind;
+    canPreview: boolean;
+};
+
+const AUDIO_EXTENSIONS = new Set(['mp3', 'wav', 'm4a', 'aac', 'flac', 'ogg', 'oga', 'opus', 'webm']);
+const VIDEO_EXTENSIONS = new Set(['mp4', 'webm', 'mov', 'avi', 'mkv', 'flv', 'wmv']);
+
+export const getFileExtension = (filename: string): string => (
+    filename.toLowerCase().split('.').pop() || ''
+);
+
+export const getMediaKind = (file: File): MediaKind | null => {
+    const mimeType = file.type.toLowerCase();
+    if (mimeType.startsWith('audio/')) return 'audio';
+    if (mimeType.startsWith('video/')) return 'video';
+
+    const ext = getFileExtension(file.name);
+    if (AUDIO_EXTENSIONS.has(ext)) return 'audio';
+    if (VIDEO_EXTENSIONS.has(ext)) return 'video';
+    return null;
+};
+
+const getHtmlMediaMetadata = (file: File, kind: MediaKind): Promise<MediaMetadata> => (
+    new Promise((resolve, reject) => {
+        const element = kind === 'audio'
+            ? document.createElement('audio')
+            : document.createElement('video');
+        const url = URL.createObjectURL(file);
+
+        element.preload = 'metadata';
+        element.onloadedmetadata = () => {
+            const video = element as HTMLVideoElement;
             resolve({
-                width: video.videoWidth,
-                height: video.videoHeight,
-                durationInSeconds: video.duration,
+                width: kind === 'video' ? video.videoWidth || 1920 : 1920,
+                height: kind === 'video' ? video.videoHeight || 1080 : 1080,
+                durationInSeconds: Number.isFinite(element.duration) ? element.duration : 0,
+                kind,
+                canPreview: true,
             });
-            // We don't revoke here because we might reuse the URL if we passed a URL,
-            // but here we are creating a temp one from File.
-            // Actually, to be safe and clean, let's create a temp URL.
-            URL.revokeObjectURL(video.src);
+            URL.revokeObjectURL(url);
         };
-        video.onerror = () => reject("Failed to load video metadata");
-        video.src = URL.createObjectURL(file);
-    });
+        element.onerror = () => {
+            URL.revokeObjectURL(url);
+            reject(new Error(`Failed to load ${kind} metadata`));
+        };
+        element.src = url;
+    })
+);
+
+export const getMediaMetadata = async (file: File): Promise<MediaMetadata> => {
+    const kind = getMediaKind(file);
+    if (!kind) {
+        throw new Error('Unsupported media format');
+    }
+
+    try {
+        return await getHtmlMediaMetadata(file, kind);
+    } catch (error) {
+        if (kind === 'video') {
+            return {
+                width: 1920,
+                height: 1080,
+                durationInSeconds: 0,
+                kind,
+                canPreview: false,
+            };
+        }
+        throw error;
+    }
 };
 
 export const formatFileSize = (bytes: number): string => {

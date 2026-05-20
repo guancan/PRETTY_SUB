@@ -17,7 +17,7 @@ import { SegmentationStatusBadge } from '@/components/SegmentationStatus';
 import { GOOGLE_FONTS, getGoogleFontUrl } from '@/lib/fonts';
 import Logger from '@/lib/logger';
 import { Player, PlayerRef } from '@remotion/player';
-import { getVideoMetadata, formatFileSize, formatDuration } from '@/lib/videoUtils';
+import { getMediaMetadata, formatFileSize, formatDuration, type MediaMetadata } from '@/lib/videoUtils';
 import { getFileSuggestion } from '@/lib/videoValidation';
 import { MainComposition } from '@/remotion/MainComposition';
 import { calculatePlayableClips, calculateTotalDuration, mapOriginalToPlayableTime } from '@/lib/timelineUtils';
@@ -34,7 +34,7 @@ export default function Home() {
   const { t } = useLanguage();
   const [videoFile, setVideoFile] = useState<File | null>(null);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
-  const [videoMetadata, setVideoMetadata] = useState<{ width: number; height: number; durationInSeconds: number } | null>(null);
+  const [videoMetadata, setVideoMetadata] = useState<MediaMetadata | null>(null);
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
   const [status, setStatus] = useState<string>('');
   const [transcription, setTranscription] = useState<TranscriptionResponse | null>(null);
@@ -157,7 +157,7 @@ export default function Home() {
 
     try {
       setStatus(t('metadata.loading'));
-      const meta = await getVideoMetadata(file);
+      const meta = await getMediaMetadata(file);
       setVideoMetadata(meta);
 
       // Check file suggestion and hard limits (after metadata)
@@ -175,11 +175,15 @@ export default function Home() {
         return; // Stop processing
       }
 
-      setStatus(t('metadata.extracting'));
+      setStatus(meta.kind === 'audio' ? t('metadata.ready') : t('metadata.extracting'));
 
-      // Auto extract audio
-      await load();
-      const blob = await extractAudio(file);
+      // Audio files can be sent to transcription directly; video containers need audio extraction.
+      const blob = meta.kind === 'audio'
+        ? file
+        : await (async () => {
+          await load();
+          return extractAudio(file);
+        })();
       if (blob) {
         setAudioBlob(blob);
         setStatus(t('metadata.ready'));
@@ -221,11 +225,24 @@ export default function Home() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [undo, redo, canUndo, canRedo]);
 
+  const getEffectiveDuration = useCallback(() => {
+    if (videoMetadata && videoMetadata.durationInSeconds > 0) {
+      return videoMetadata.durationInSeconds;
+    }
+
+    const lastSegment = segments[segments.length - 1];
+    if (lastSegment?.words.length) {
+      return lastSegment.words[lastSegment.words.length - 1].end;
+    }
+
+    return 0;
+  }, [segments, videoMetadata]);
+
   // Handle seeking from Editor
   const handleSeek = (originalTime: number) => {
     if (playerRef.current && videoMetadata) {
       // Map original time to playable time because we might have cuts
-      const clips = calculatePlayableClips(segments, videoMetadata.durationInSeconds);
+      const clips = calculatePlayableClips(segments, getEffectiveDuration());
       const playableTime = mapOriginalToPlayableTime(originalTime, clips);
 
       const fps = 30;
@@ -316,11 +333,16 @@ export default function Home() {
 
     try {
       const formData = new FormData();
-      formData.append('file', audioBlob, 'audio.mp3');
+      const audioFilename = audioBlob instanceof File ? audioBlob.name : 'audio.mp3';
+      formData.append('file', audioBlob, audioFilename);
 
       const result = await transcribeAudio(formData);
       if (result) {
         setTranscription(result);
+        const inferredDuration = result.words.length > 0 ? result.words[result.words.length - 1].end : 0;
+        if (videoMetadata && videoMetadata.durationInSeconds <= 0 && inferredDuration > 0) {
+          setVideoMetadata({ ...videoMetadata, durationInSeconds: inferredDuration });
+        }
         setProcessingStage('segmenting');
         setStatus(t('status.generatingSegments'));
         const segs = await generateSegments(result, { useAi: result.provider !== 'doubao-flash' });
@@ -361,12 +383,12 @@ export default function Home() {
   const handleExportSrt = () => {
     if (!videoMetadata || segments.length === 0) return;
     const baseName = videoFile?.name?.replace(/\.[^.]+$/, '') || 'subtitles';
-    exportSrt(segments, videoMetadata.durationInSeconds, `${baseName}.srt`);
+    exportSrt(segments, getEffectiveDuration(), `${baseName}.srt`);
   };
 
   const handleExportVideo = async () => {
     if (!videoFile || !videoMetadata) return;
-    const clips = calculatePlayableClips(segments, videoMetadata.durationInSeconds);
+    const clips = calculatePlayableClips(segments, getEffectiveDuration());
     const baseName = videoFile.name.replace(/\.[^.]+$/, '');
     await exportTrimmedVideo(videoFile, clips, `${baseName}_trimmed.mp4`);
   };
@@ -377,7 +399,7 @@ export default function Home() {
     await exportOverlayVideo(
       videoFile,
       segments,
-      videoMetadata.durationInSeconds,
+      getEffectiveDuration(),
       selectedFont,
       globalYPosition,
       `${baseName}_subtitled.mp4`
@@ -419,7 +441,7 @@ export default function Home() {
             borderRadius: 'var(--radius-md)',
             cursor: 'pointer'
           }}>
-            <input type="file" accept=".mp4,.webm,.mov,.avi,.mkv,.flv,.wmv,video/mp4,video/webm,video/quicktime,video/x-msvideo,video/x-matroska,video/x-flv" onChange={handleFileSelect} hidden />
+            <input type="file" accept=".mp4,.webm,.mov,.avi,.mkv,.flv,.wmv,.mp3,.wav,.m4a,.aac,.flac,.ogg,.oga,.opus,video/mp4,video/webm,video/quicktime,video/x-msvideo,video/x-matroska,video/x-flv,audio/mpeg,audio/mp3,audio/wav,audio/x-wav,audio/mp4,audio/aac,audio/flac,audio/ogg,audio/opus" onChange={handleFileSelect} hidden />
             <div style={{ background: 'rgba(99, 102, 241, 0.1)', padding: 24, borderRadius: '50%', marginBottom: 16 }}>
               <UploadCloud size={48} color="var(--accent-primary)" />
             </div>
@@ -468,7 +490,8 @@ export default function Home() {
                   color: 'var(--text-secondary)',
                   fontWeight: 400
                 }}>
-                  {formatFileSize(videoFile.size)} • {videoMetadata.width}×{videoMetadata.height} • {formatDuration(videoMetadata.durationInSeconds)}
+                  {formatFileSize(videoFile.size)} • {videoMetadata.kind === 'audio' ? t('metadata.audioFile') : `${videoMetadata.width}×${videoMetadata.height}`} • {videoMetadata.durationInSeconds > 0 ? formatDuration(videoMetadata.durationInSeconds) : t('metadata.durationUnknown')}
+                  {videoMetadata.kind === 'video' && !videoMetadata.canPreview ? ` • ${t('metadata.previewUnavailable')}` : ''}
                 </p>
               )}
 
@@ -641,17 +664,20 @@ export default function Home() {
                       <Player
                         ref={playerRef}
                         component={MainComposition}
-                        inputProps={{
-                          videoUrl: videoUrl,
-                          segments: segments,
-                          fontFamily: selectedFont,
-                          videoDurationSeconds: videoMetadata?.durationInSeconds,
-                          globalYPosition: globalYPosition
-                        }}
+	                        inputProps={{
+	                          videoUrl: videoUrl,
+	                          mediaKind: videoMetadata?.kind,
+	                          mediaCanPreview: videoMetadata?.canPreview,
+	                          segments: segments,
+	                          fontFamily: selectedFont,
+	                          videoDurationSeconds: getEffectiveDuration(),
+	                          globalYPosition: globalYPosition
+	                        }}
                         // Calculate *visual* duration based on cuts
                         durationInFrames={(() => {
-                          if (!videoMetadata) return 30 * 60;
-                          const clips = calculatePlayableClips(segments, videoMetadata.durationInSeconds);
+	                          const duration = getEffectiveDuration();
+	                          if (!duration) return 30 * 60;
+	                          const clips = calculatePlayableClips(segments, duration);
                           const totalTime = calculateTotalDuration(clips);
                           return Math.ceil(totalTime * 30);
                         })()}
@@ -711,10 +737,11 @@ export default function Home() {
               <ExportPanel
                 segmentCount={segments.filter(seg => seg.words.some(w => !w.isDeleted && !w.isCut)).length}
                 hasCuts={hasCuts}
-                onExportSrt={handleExportSrt}
-                onExportVideo={handleExportVideo}
-                onExportOverlay={handleExportOverlay}
-                videoExportState={videoExportState}
+	                onExportSrt={handleExportSrt}
+	                onExportVideo={handleExportVideo}
+	                onExportOverlay={handleExportOverlay}
+	                videoExportsEnabled={videoMetadata?.kind === 'video'}
+	                videoExportState={videoExportState}
                 overlayExportState={overlayExportState}
                 onResetExport={resetExport}
                 onResetOverlayExport={resetOverlayExport}

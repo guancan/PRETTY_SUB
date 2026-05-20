@@ -7,6 +7,7 @@ export interface SegmentWord extends TranscriptionWord {
     isDeleted?: boolean; // Text deleted, video plays
     isCut?: boolean;     // Video cut, text hidden
     isGapCut?: boolean;  // Preceding gap cut
+    displayGroupId?: string;
     textEditGroupId?: string;
     textEditOriginalText?: string;
 }
