@@ -1,8 +1,8 @@
 import { useState, useRef, useCallback } from 'react';
 import { FFmpeg } from '@ffmpeg/ffmpeg';
-import { toBlobURL, fetchFile } from '@ffmpeg/util';
+import { toBlobURL } from '@ffmpeg/util';
 import { SubtitleSegment, SegmentWord } from '@/lib/segmentation';
-import { TimeRange, calculatePlayableClips, mapOriginalToPlayableTime } from '@/lib/timelineUtils';
+import { calculatePlayableClips } from '@/lib/timelineUtils';
 import { downloadBlob } from '@/lib/exportUtils';
 import Logger from '@/lib/logger';
 import { shouldInsertSpaceBetweenTokens } from '@/lib/transcriptText';
@@ -320,7 +320,6 @@ export function useOverlayExporter() {
                 if (abortRef.current) break;
 
                 const clip = clips[clipIdx];
-                const clipDuration = clip.end - clip.start;
 
                 // Seek to clip start
                 videoEl.currentTime = clip.start;

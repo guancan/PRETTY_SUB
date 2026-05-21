@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useCallback, useRef, useEffect, type PointerEvent as ReactPointerEvent } from 'react';
-import { Eye, List, Type, UploadCloud, FileAudio, FileText, ArrowUpDown } from 'lucide-react';
+import { Type, UploadCloud, FileText, ArrowUpDown } from 'lucide-react';
 import { useAudioExtractor } from '@/hooks/useAudioExtractor';
 import { useHistory } from '@/hooks/useHistory';
 import { aiSegmentWords } from '@/actions/aiSegment';
@@ -42,7 +42,7 @@ export default function Home() {
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [videoMetadata, setVideoMetadata] = useState<MediaMetadata | null>(null);
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
-  const [status, setStatus] = useState<string>('');
+  const [, setStatus] = useState<string>('');
   const [transcription, setTranscription] = useState<TranscriptionResponse | null>(null);
   const [speakers, setSpeakers] = useState<Speaker[]>([]);
   const [segmentationOptions, setSegmentationOptions] = useState<SegmentationOptions>(DEFAULT_SEGMENTATION_OPTIONS);
@@ -63,8 +63,6 @@ export default function Home() {
     redo,
     canUndo,
     canRedo,
-    past,
-    future
   } = useHistory<SubtitleSegment[]>([]);
 
   const [selectedFont, setSelectedFont] = useState(GOOGLE_FONTS[0].family);
@@ -73,7 +71,6 @@ export default function Home() {
   const [enableSpeakerDiarization, setEnableSpeakerDiarization] = useState(false);
   const [processingStage, setProcessingStage] = useState<'idle' | 'transcribing' | 'segmenting'>('idle');
   const [isResegmenting, setIsResegmenting] = useState(false);
-  const [showRaw, setShowRaw] = useState(false);
   const [editorPanelRatio, setEditorPanelRatio] = useState(DEFAULT_EDITOR_PANEL_RATIO);
   const [isSplitResizing, setIsSplitResizing] = useState(false);
   const [includeSpeakerNameInSubtitles, setIncludeSpeakerNameInSubtitles] = useState(false);
@@ -83,7 +80,7 @@ export default function Home() {
   const playerRef = useRef<PlayerRef>(null);
   const splitViewRef = useRef<HTMLDivElement | null>(null);
 
-  const { extractAudio, isReady, load, progress } = useAudioExtractor();
+  const { extractAudio, load } = useAudioExtractor();
   const { exportState: videoExportState, exportTrimmedVideo, resetExport } = useVideoExporter();
   const { overlayExportState, exportOverlayVideo, resetOverlayExport } = useOverlayExporter();
 

@@ -168,7 +168,8 @@ export function useVideoExporter() {
             // Step 3: Read output
             setState({ stage: 'reading-output', progress: 95, error: null });
             const data = await ffmpeg.readFile('output_trimmed.mp4');
-            const blob = new Blob([data as any], { type: 'video/mp4' });
+            const blobPart: BlobPart = typeof data === 'string' ? data : data.slice().buffer;
+            const blob = new Blob([blobPart], { type: 'video/mp4' });
 
             Logger.info(`[VideoExport] Output size: ${(blob.size / 1024 / 1024).toFixed(1)}MB`);
 
@@ -183,12 +184,12 @@ export function useVideoExporter() {
 
             setState({ stage: 'done', progress: 100, error: null });
 
-        } catch (error: any) {
+        } catch (error: unknown) {
             Logger.error('[VideoExport] Export failed', error);
             setState({
                 stage: 'error',
                 progress: 0,
-                error: error?.message || 'Export failed',
+                error: error instanceof Error ? error.message : 'Export failed',
             });
         }
     }, []);

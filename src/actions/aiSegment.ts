@@ -46,26 +46,43 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const isRetryableStatus = (status?: number) => (status ? status === 429 || status >= 500 : false);
 
-const parseRanges = (payload: any, totalWords: number): SegmentRange[] => {
+const isRecord = (value: unknown): value is Record<string, unknown> => (
+  typeof value === 'object' && value !== null
+);
+
+const getErrorStatus = (error: unknown): number | undefined => (
+  isRecord(error) && typeof error.status === 'number' ? error.status : undefined
+);
+
+const getErrorMessage = (error: unknown): string => (
+  error instanceof Error ? error.message : 'Unknown error'
+);
+
+const getErrorStack = (error: unknown): string | undefined => (
+  error instanceof Error ? error.stack : undefined
+);
+
+const parseRanges = (payload: unknown, totalWords: number): SegmentRange[] => {
   if (config.debugAiSegmentation) {
     Logger.debug('[Parse Ranges] Input payload:', {
       payloadType: typeof payload,
-      payloadKeys: payload ? Object.keys(payload) : 'null',
+      payloadKeys: isRecord(payload) ? Object.keys(payload) : 'null',
       payload: JSON.stringify(payload, null, 2),
       totalWords
     });
   }
 
-  const segments = payload?.segments;
+  const segments = isRecord(payload) ? payload.segments : undefined;
   if (!Array.isArray(segments) || segments.length === 0) {
     throw new Error(
       `AI segmentation response missing segments. Received payload: ${JSON.stringify(payload)}`
     );
   }
 
-  const ranges = segments.map((item: any, index: number) => {
-    const startIndex = Number(item?.startIndex);
-    const endIndex = Number(item?.endIndex);
+  const ranges = segments.map((item: unknown, index: number) => {
+    const segment = isRecord(item) ? item : {};
+    const startIndex = Number(segment.startIndex);
+    const endIndex = Number(segment.endIndex);
     if (!Number.isInteger(startIndex) || !Number.isInteger(endIndex)) {
       throw new Error(
         `AI segmentation returned non-integer indices at segment ${index}: ${JSON.stringify(item)}`
@@ -154,7 +171,7 @@ export async function aiSegmentWords(params: {
         config: {
           temperature: 0.2,
           responseMimeType: 'application/json',
-          responseSchema: AI_SEGMENTATION_SCHEMA as any
+          responseSchema: AI_SEGMENTATION_SCHEMA as unknown as Record<string, unknown>
         }
       });
 
@@ -171,13 +188,14 @@ export async function aiSegmentWords(params: {
         });
       }
 
-      const parsed = JSON.parse(text);
+      const parsed: unknown = JSON.parse(text);
 
       if (config.debugAiSegmentation) {
+        const parsedSegments = isRecord(parsed) && Array.isArray(parsed.segments) ? parsed.segments : [];
         Logger.debug('[AI Segmentation Parsed JSON]', {
           attempt,
           parsed,
-          segmentsCount: parsed?.segments?.length || 0
+          segmentsCount: parsedSegments.length
         });
       }
 
@@ -192,15 +210,15 @@ export async function aiSegmentWords(params: {
       }
 
       return { ranges, model };
-    } catch (error: any) {
-      const status = typeof error?.status === 'number' ? error.status : undefined;
+    } catch (error: unknown) {
+      const status = getErrorStatus(error);
 
       if (config.debugAiSegmentation) {
         Logger.debug('[AI Segmentation Error]', {
           attempt,
           status,
-          errorMessage: error?.message || 'Unknown error',
-          errorStack: error?.stack
+          errorMessage: getErrorMessage(error),
+          errorStack: getErrorStack(error)
         });
       }
 

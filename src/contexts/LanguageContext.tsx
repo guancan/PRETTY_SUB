@@ -1,6 +1,8 @@
 'use client';
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import zhTranslations from '@/locales/zh.json';
+import enTranslations from '@/locales/en.json';
 
 export type Language = 'en' | 'zh';
 
@@ -14,18 +16,23 @@ const LANGUAGE_STORAGE_KEY = 'pretty_sub_language';
 
 const LanguageContext = createContext<LanguageContextType | undefined>(undefined);
 
+const getPreferredLanguage = (): Language => {
+  const stored = localStorage.getItem(LANGUAGE_STORAGE_KEY);
+  if (stored === 'zh' || stored === 'en') return stored;
+  return navigator.language.startsWith('zh') ? 'zh' : 'en';
+};
+
 export function LanguageProvider({ children }: { children: React.ReactNode }) {
   // Always start with 'en' to match SSR, then update on client after mount
   const [language, setLanguageState] = useState<Language>('en');
 
   useEffect(() => {
     // Read persisted preference or browser language only on the client
-    const stored = localStorage.getItem(LANGUAGE_STORAGE_KEY);
-    if (stored === 'zh' || stored === 'en') {
-      setLanguageState(stored);
-    } else if (navigator.language.startsWith('zh')) {
-      setLanguageState('zh');
-    }
+    const timeoutId = window.setTimeout(() => {
+      setLanguageState(getPreferredLanguage());
+    }, 0);
+
+    return () => window.clearTimeout(timeoutId);
   }, []);
 
   const setLanguage = (lang: Language) => {
@@ -37,15 +44,15 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
   };
 
   const t = (key: string, params?: Record<string, string | number>) => {
-    const translations = language === 'zh'
-      ? require('@/locales/zh.json')
-      : require('@/locales/en.json');
+    const translations = language === 'zh' ? zhTranslations : enTranslations;
 
     const keys = key.split('.');
-    let value: any = translations;
+    let value: unknown = translations;
 
     for (const k of keys) {
-      value = value?.[k];
+      value = typeof value === 'object' && value !== null
+        ? (value as Record<string, unknown>)[k]
+        : undefined;
     }
 
     if (typeof value !== 'string') {

@@ -1,153 +1,90 @@
-# 技术说明
+# PRETTY SUB 技术框架说明
 
-本文梳理当前项目的数据结构与处理流程，便于协作与后续扩展。
+本文描述当前项目的真实架构、核心数据模型和扩展边界。开发接手时，先读本文件，再结合 [README.md](./README.md) 完成本地环境配置。
 
-## 产品功能清单
-
-### 功能结构（按用户目标）
-- 视频导入与预览：上传视频、解析元数据、生成预览 URL。
-- 音频抽取：浏览器端加载 ffmpeg.wasm，提取音频 Blob。
-- 语音转写：将音频发送至 UniAPI Whisper-1，获取逐词时间戳。
-- 分段：优先调用 AI 分段优化（可用时），否则使用规则分段。
-- 字幕编辑：对词/静音段进行删除、剪切、上色、位置调整，支持撤销重做。
-- 剪辑预览：根据剪切结果生成可播放片段，在 Remotion 中拼接并叠字幕。
-
-## 整体框架
-
-### 架构速览
-- 框架：Next.js App Router + React + TypeScript
-- 客户端流程：视频上传、音频抽取（ffmpeg.wasm）、字幕编辑
-- 服务端动作：调用 UniAPI Whisper-1 做音频转写
-- 预览：Remotion Player + 动态字幕 + 剪辑后播放
-
-### 概念模型（实体与关系）
+## 架构总览
 
 ```mermaid
 flowchart LR
-  V[原视频文件] --> M[视频元数据]
-  V --> A[音频 Blob]
-  A --> T[转写结果 TranscriptionResponse]
-  T --> S[字幕段 SubtitleSegment[]]
-  S --> P[可播放片段 TimeRange[]]
-  S --> R[字幕渲染]
-  P --> R
+  F[音频/视频文件] --> M[媒体元数据解析]
+  F --> A[音频 Blob]
+  F --> P[本地预览 URL]
+  M --> U[上传与处理状态]
+  A --> T[Server Action: transcribeAudio]
+  T --> R[TranscriptionResponse]
+  R --> G[分段生成]
+  G --> S[SubtitleSegment[]]
+  S --> E[SubtitleEditor]
+  S --> C[calculatePlayableClips]
+  C --> V[Remotion Player 预览]
+  S --> X[SRT / 视频导出]
 ```
 
-### 数据流图
+项目是一个 Next.js 单页工作台。媒体文件保留在浏览器本地，服务端只接收抽取后的音频 Blob 用于语音识别或 AI 分段。编辑器、预览和导出都围绕同一份 `SubtitleSegment[]` 工作。
 
-```mermaid
-flowchart LR
-  A[视频文件] --> B[获取元数据]
-  A --> C[ffmpeg.wasm 抽取音频]
-  C --> D[音频 Blob]
-  D --> E[Server Action: transcribeAudio]
-  E --> F[TranscriptionResponse]
-  F --> G[segmentWords 分段]
-  G --> H[SubtitleSegment[]]
-  H --> I[SubtitleEditor 编辑]
-  H --> J[calculatePlayableClips]
-  J --> K[可播放 TimeRange[]]
-  K --> L[Remotion Player]
-  L --> M[DynamicCaptions]
-```
+## 运行边界
 
-### 核心概念（数据视角）
-- 转写结果：`TranscriptionResponse`，仅包含原始文本与逐词时间戳，不含编辑信息。
-- 字幕段：`SubtitleSegment[]`，编辑与预览的唯一数据源，承载词级状态与位置。
-- 可播放时间线：`TimeRange[]`，由字幕段上的剪切标记导出，用于重构播放序列。
+- 浏览器端：文件选择、媒体预览、FFmpeg WASM 音频抽取、字幕编辑、Remotion Player 预览、视频导出。
+- Server Actions：语音识别 provider 调用、Gemini 分段调用。
+- 远程 API：豆包文件识别极速版、UniAPI Whisper、UniAPI Gemini 转发。
+- 本地状态：React state + `useHistory` 撤销栈；当前没有后端数据库。
 
-### 关键概念与操作语义
-- 转写结果：只描述“听到什么”和“何时听到”，不包含编辑状态。
-- 字幕段：编辑与预览的唯一数据源，聚合词级状态、颜色与位置。
-- 删除（`isDeleted`）：仅隐藏字幕文字，视频仍完整播放。
-- 剪切（`isCut`）：对应时间范围从视频中移除，字幕也不显示。
-- 静音剪切（`isGapCut`）：移除词前静音区间。
+## Provider 策略
 
-## 功能模块与数据结构细化
+### 转写 provider
 
-### 模块职责（按代码组织）
-- `src/app/page.tsx`：流程编排与页面状态，驱动上传、转写、分段、编辑与预览。
-- `src/hooks/useAudioExtractor.ts`：ffmpeg.wasm 加载与音频抽取。
-- `src/actions/transcribe.ts`：服务端 action，负责调用 UniAPI 与结果解析。
-- `src/actions/aiSegment.ts`：服务端 action，通过 UniAPI 转发的 @google/genai SDK 生成优化分段区间。
-- `src/lib/segmentation.ts`：词到字幕段的分段策略实现。
-- `src/lib/prompts/segmentationPrompt.ts`：AI 分段提示词模板。
-- `src/components/SubtitleEditor.tsx`：编辑器 UI 与交互规则。
-- `src/lib/timelineUtils.ts`：剪切区间合并与可播放时间线生成。
-- `src/remotion/MainComposition.tsx` / `src/remotion/DynamicCaptions.tsx`：预览渲染与动态字幕。
-- `src/contexts/LanguageContext.tsx`：多语言状态管理，提供翻译功能与语言切换。
-- `src/locales/`：翻译数据文件（中文/英文）。
-- `src/components/LanguageSwitcher.tsx`：语言切换UI组件。
+转写入口位于 `src/actions/transcribe.ts`，配置入口位于 `src/lib/config.ts`。
 
-### 核心数据结构
+当前支持：
 
-#### 转写结构
-定义于 `src/actions/transcribe.ts`。
+- `doubao-flash`：主线 provider。使用豆包大模型录音文件极速版识别接口，保留 utterance、word timestamp、speaker 信息。
+- `whisper`：备选 provider。通过 UniAPI 调 OpenAI Whisper-1，保留 word timestamp；没有 speaker diarization。
+
+无论 provider 原始响应如何，最终都必须归一化为：
 
 ```ts
 export type TranscriptionWord = {
   word: string;
+  originalWord?: string;
   start: number;
   end: number;
+  kind?: 'speech' | 'punctuation';
+  confidence?: number;
+  speakerId?: string;
+  channelId?: number;
+};
+
+export type TranscriptionUtterance = {
+  text: string;
+  start: number;
+  end: number;
+  wordStartIndex: number;
+  wordEndIndex: number;
+  speakerId?: string;
+  channelId?: number;
 };
 
 export type TranscriptionResponse = {
   text: string;
   words: TranscriptionWord[];
+  utterances?: TranscriptionUtterance[];
+  provider: 'whisper' | 'doubao-flash';
+  model?: string;
+  logId?: string | null;
+  speakerDiarizationEnabled?: boolean;
 };
 ```
 
-使用位置：
-- `src/actions/transcribe.ts`：服务端 action 返回该结构，作为转写结果的标准格式。
-- `src/lib/segmentation.ts`：`segmentWords(words)` 接收 `TranscriptionWord[]` 生成字幕段。
-- `src/app/page.tsx`：页面状态 `transcription` 保存转写结果并触发分段与编辑流程。
+UI 层不应读取 provider 原始响应。新增 provider 时，先补归一化逻辑，再复用现有分段、编辑、预览和导出链路。
 
-#### 字幕结构
-定义于 `src/lib/segmentation.ts`。
+### AI 分段
 
-```ts
-export interface SegmentWord extends TranscriptionWord {
-  color?: number; // 0-3
-  isDeleted?: boolean; // 文本删除，视频仍播放
-  isCut?: boolean;     // 视频剪切，文本隐藏
-  isGapCut?: boolean;  // 前置静音段被剪切
-}
+分段入口由 `src/app/page.tsx` 调度：
 
-export interface SubtitleSegment {
-  id: string;
-  text: string;
-  start: number;
-  end: number;
-  words: SegmentWord[];
-  yPosition?: number; // 0-100，距顶部百分比
-}
-```
+- 豆包 provider：优先使用豆包返回的 utterances，并结合规则进一步控制字幕长度。
+- 非豆包 provider：可走 `src/actions/aiSegment.ts` 的 Gemini 分段；失败时回退规则分段。
 
-使用位置：
-- `src/lib/segmentation.ts`：`segmentWords` 产出 `SubtitleSegment[]`。
-- `src/components/SubtitleEditor.tsx`：编辑器以该结构为唯一真实数据源。
-- `src/lib/timelineUtils.ts`：从 `SubtitleSegment[]` 中读取 `isCut/isGapCut` 计算可播放片段。
-- `src/remotion/MainComposition.tsx`：作为 Remotion 输入，驱动剪辑预览。
-- `src/remotion/DynamicCaptions.tsx`：渲染字幕与词级高亮，并尊重 `isDeleted/isCut`。
-- `src/app/page.tsx`：页面状态 `segments` 贯穿编辑与预览。
-
-#### 时间线结构
-定义于 `src/lib/timelineUtils.ts`。
-
-```ts
-export interface TimeRange {
-  start: number;
-  end: number;
-}
-```
-
-使用位置：
-- `src/lib/timelineUtils.ts`：`calculatePlayableClips` 返回 `TimeRange[]`，代表剪辑后的可播放片段。
-- `src/app/page.tsx`：计算预览总时长与 seek 映射（通过 `mapOriginalToPlayableTime`）。
-- `src/remotion/MainComposition.tsx`：将 `TimeRange[]` 映射为 Remotion `Series` 序列。
-
-#### 分段规则配置
-定义于 `src/lib/segmentation.ts`，由前端配置并传入 `segmentWords`。
+规则分段位于 `src/lib/segmentation.ts`，核心参数为：
 
 ```ts
 export interface SegmentationOptions {
@@ -158,161 +95,197 @@ export interface SegmentationOptions {
 }
 ```
 
-使用位置：
-- `src/app/page.tsx`：作为页面状态，由“分段规则”弹窗配置与展示。
-- `src/lib/segmentation.ts`：分段逻辑读取该配置并应用。
+## 核心数据模型
 
-### 编辑器 UI 中间结构
-由 `src/components/SubtitleEditor.tsx` 从 `SubtitleSegment[]` 计算生成，仅用于展示/选择，不持久化。
+### SubtitleSegment
+
+定义于 `src/lib/segmentation.ts`，是编辑器、预览和导出的主数据源。
 
 ```ts
-type ItemType = 'word' | 'gap';
+export interface SegmentWord extends TranscriptionWord {
+  color?: number;
+  isDeleted?: boolean;
+  isCut?: boolean;
+  isGapCut?: boolean;
+  displayGroupId?: string;
+  textEditGroupId?: string;
+  textEditOriginalText?: string;
+}
 
-interface UIItem {
+export interface SubtitleSegment {
   id: string;
-  type: ItemType;
   text: string;
   start: number;
   end: number;
-  isDeleted: boolean;
-  isCut?: boolean;
-  isGapCut?: boolean;
-  color: number;
-  segmentId: string;
-  originalWordIndex?: number;
+  words: SegmentWord[];
+  yPosition?: number;
+  speakerId?: string;
+  speakerName?: string;
+  channelId?: number;
 }
 ```
 
-### 数据格式备注
+语义：
 
-#### TranscriptionWord
-- `start`/`end` 以秒为单位（number，小数表示），通常来自 Whisper 的 word-level 时间戳。
-- `word` 可能包含标点或大小写变体，顺序即原始语音顺序。
+- `isDeleted`：仅删除字幕文本，视频/音频仍保留。
+- `isCut`：剪掉对应媒体片段，字幕也不显示。
+- `isGapCut`：剪掉词前静音 gap。
+- `color`：字幕文字颜色标记，不影响 speaker。
+- `speakerId`：该句最终归属的说话人。
+- `speakerName`：过渡字段；显示和导出优先读取应用级 `Speaker[]`。
 
-#### TranscriptionResponse
-- `text` 为整段转写文本（字符串）。
-- `words` 为逐词数组，顺序与时间线一致。
+### Speaker
 
-#### SegmentWord
-- 继承 `TranscriptionWord`，在编辑器中附加状态位与颜色。
-- `color` 取值 `0-3`，对应预设颜色；`0` 为默认色。
-- `isDeleted` 仅隐藏字幕文本，视频仍播放。
-- `isCut` 表示该词对应的视频片段被剪掉，字幕也不显示。
-- `isGapCut` 表示该词前的静音间隔被剪掉。
+```ts
+export type SpeakerSource = 'provider' | 'manual';
 
-#### SubtitleSegment
-- `text` 为该段 `words` 拼接后的可读文本（以空格分隔）。
-- `start`/`end` 取首词/末词时间戳。
-- `yPosition` 为该段字幕的垂直位置百分比（0 顶部、100 底部），未设置时使用全局默认值。
-
-#### TimeRange
-- `start`/`end` 均为秒。
-- 由剪辑逻辑计算得出，内部会进行合并与容差处理（约 0.05s）。
-
-#### UIItem（编辑器内部）
-- `type='gap'` 表示静音区间，`text` 为形如 `0.35s` 的时长字符串。
-- `originalWordIndex` 指向该 gap 后方的词，用于将 gap 操作映射回 `SegmentWord`。
-- `id` 以 `gap-<segmentId>-<wordIdx>` 或 `<segmentId>-word-<wordIdx>` 的模式生成。
-
-### 多语言支持
-项目实现了完整的中英文双语支持，采用 React Context + JSON + LocalStorage 的轻量级方案。
-
-#### 架构设计
-- **状态管理**：`LanguageContext` 提供全局语言状态和翻译函数
-- **翻译数据**：`src/locales/zh.json` 和 `src/locales/en.json` 存储翻译文本
-- **持久化**：使用 `localStorage` 保存用户语言偏好
-- **自动检测**：首次访问根据浏览器语言自动选择
-
-#### 核心特性
-- **无刷新切换**：语言切换不改变 URL，不中断 AI 处理进程
-- **参数插值**：支持动态参数，如 `{count}`, `{size}` 等
-- **全面覆盖**：所有 UI 文本、提示信息、错误消息均支持翻译
-- **类型安全**：TypeScript 类型定义确保翻译键的正确性
-
-#### 使用方式
-```typescript
-// 在组件中使用翻译
-const { t, language, setLanguage } = useLanguage();
-
-// 简单翻译
-t('app.title')
-
-// 带参数翻译
-t('validation.sizeRecommendation', {
-  recommendedSize: '200 MB',
-  currentSize: '219 MB'
-})
-
-// 语言切换
-setLanguage('zh') // 中文
-setLanguage('en') // 英文
+export interface Speaker {
+  id: string;
+  name: string;
+  source: SpeakerSource;
+}
 ```
 
-#### 翻译键组织
-翻译键按功能模块分层组织：
-- `app.*` - 应用基础信息
-- `upload.*` - 上传相关
-- `transcription.*` - 转写功能
-- `segmentation.*` - 分段配置
-- `editor.*` - 编辑器功能
-- `validation.*` - 文件验证提示
-- `errors.*` - 错误消息
-- `status.*` - 状态提示
+约定：
 
-## 处理流程
+- provider 返回的 speaker id 直接作为 `Speaker.id`。
+- 手动新增 speaker 使用本地生成 id。
+- 字幕段只引用 `speakerId`，重命名只改 `Speaker.name`。
+- 删除有字幕引用的 speaker 必须先归并到其他 speaker。
+- 只要用户处于“区分说话人”模式，即使只有一个 speaker，也保留 speaker 管理入口。
 
-1) 上传与元数据
-- 用户在 `src/app/page.tsx` 选择视频文件。
-- `getVideoMetadata(file)` 读取宽高和时长，并创建预览用 Blob URL。
+### TimeRange
 
-2) 音频抽取（客户端）
-- `useAudioExtractor()` 加载 ffmpeg.wasm。
-- `extractAudio()` 输出 mp3 Blob 供转写。
+定义于 `src/lib/timelineUtils.ts`。
 
-3) 转写（服务端动作）
-- `transcribeAudio(formData)` 请求 UniAPI Whisper-1。
-- 返回带词级时间戳的 `TranscriptionResponse`。
+```ts
+export interface TimeRange {
+  start: number;
+  end: number;
+}
+```
 
-4) 分段
-- 优先调用 AI 分段：传入词级时间戳与规则参考信息，返回更自然的分段区间；失败或不可用时回退规则分段。
-- 规则分段：`segmentWords(words, options)` 将词按字符数、时长、标点等规则切分成 `SubtitleSegment[]`。
-- 规则阈值来自前端可配置项（见“分段规则配置”），在生成字幕与重新分段时均生效。
-- 默认阈值：`maxCharsPerLine = 25`，`maxDurationSeconds = 3.0`（可通过 `options` 覆盖）。
-- 计数方式：`newLength = 当前累计字符 + 1(空格) + 当前词长度`；`duration = 当前词 end - 当前段 start`。
-- 触发切分条件（任一满足即切分）：
-  - `newLength > MAX_CHARS`
-  - `duration > MAX_DURATION`
-  - 当前词以标点结尾（`/[.!?。！？]$/`）且 `newLength > 10`
-- 段落文本：`text` 为段内词用空格拼接后的结果。
-- 段落时间：`start` 取首词 start，`end` 取末词 end。
-- 初始词进入新段后不会继续判断本词是否切分（先起段，再累积判断后续词）。
-- 分段时为每个词初始化增强字段：`color=0`、`isDeleted=false`（不设置 `isCut/isGapCut`）。
+`calculatePlayableClips(segments, duration)` 从 `isCut` 和 `isGapCut` 计算剪切后的可播放片段。Remotion 预览、SRT 时间映射、剪切视频导出都依赖这一层。
 
-5) 编辑
-- 在 `SubtitleEditor` 中对词/静音段标记删除或剪切，并支持上色与段落位置调整。
-- 撤销/重做由 `useHistory` 管理。
+## 主要模块职责
 
-6) 时间线计算
-- `calculatePlayableClips(segments, videoDuration)` 收集 `isCut` 与 `isGapCut` 的区间并合并。
-- 输出可播放 `TimeRange[]`；`mapOriginalToPlayableTime` 用于编辑器与预览的时间映射。
+| 模块 | 职责 |
+| --- | --- |
+| `src/app/page.tsx` | 工作台状态编排；上传、转写、分段、编辑、预览、导出 |
+| `src/actions/transcribe.ts` | 语音识别 provider 请求与响应归一化 |
+| `src/actions/aiSegment.ts` | Gemini 分段请求、重试与回退 |
+| `src/lib/config.ts` | 环境变量解析和 provider 配置 |
+| `src/lib/segmentation.ts` | 分段规则、字幕段构建、speaker 数据类型 |
+| `src/lib/transcriptText.ts` | 中英文、标点、空格拼接规则 |
+| `src/components/SubtitleEditor.tsx` | 词/字/句编辑、speaker 管理、菜单交互 |
+| `src/components/ExportPanel.tsx` | SRT、剪切视频、烧录视频导出入口 |
+| `src/lib/exportUtils.ts` | SRT 构建、speaker 导出模式、下载 |
+| `src/lib/timelineUtils.ts` | 剪切区间合并、原时间线到可播放时间线映射 |
+| `src/hooks/useAudioExtractor.ts` | FFmpeg WASM 音频抽取 |
+| `src/hooks/useVideoExporter.ts` | FFmpeg WASM 剪切视频导出 |
+| `src/hooks/useOverlayExporter.ts` | Canvas + MediaRecorder + FFmpeg 烧录字幕导出 |
+| `src/remotion/MainComposition.tsx` | 剪切后媒体序列渲染 |
+| `src/remotion/DynamicCaptions.tsx` | 动态字幕和 speaker 前缀预览 |
+| `src/contexts/LanguageContext.tsx` | 中英文 UI 文案 |
 
-7) 预览渲染（Remotion）
-- `MainComposition` 以 `Series` 拼接可播放片段。
-- `DynamicCaptions` 渲染当前段字幕，隐藏 `isDeleted/isCut` 的词，并高亮当前词。
+## 编辑操作语义
 
-## 运行时状态（Page 级）
-位于 `src/app/page.tsx`：
-- `videoFile`, `videoUrl`, `videoMetadata`
-- `audioBlob`, `transcription`
-- `segments`（编辑与预览的唯一来源）
-- `selectedFont`, `globalYPosition`
+### 字/词编辑
 
-## 配置
-- `UNIAPI_KEY`（见 `env.example`）用于转写与 AI 分段转发。
-- `GEMINI_SEGMENTATION_MODEL` 用于 AI 分段模型选择（可选）。
-- `UNIAPI_GEMINI_BASE_URL` 用于 UniAPI Gemini 转发地址（@google/genai SDK，默认已配置）。
-- `next.config.ts` 设置 COOP/COEP，确保 wasm 隔离环境。
+编辑器显示的是 provider token 经过分组后的可操作单元。中文词可作为一个显示单元，仍允许词内单字选择。
 
-## 现状与限制
-- 当前仅支持客户端编辑与预览，没有导出/渲染成片流程。
-- 状态仅保存在内存中，没有持久化或项目保存/加载能力。
+- 词级剪切/删除：直接修改对应 word 状态。
+- 词内单字剪切/删除：先按用户选择的字拆分显示词，再只处理选中部分。
+- 文案编辑：修改字幕文本，不改变原始媒体时间轴；字数变化时按原时间范围重新分摊内部 token 时间。
+- 恢复：按原始文本或原始状态还原。
+
+### 整句编辑
+
+句子左侧手柄菜单负责整句操作：
+
+- 整句剪切（视频）：句内文字和可见 gap 一起进入剪切态。
+- 整句删除（仅文本）：只隐藏文字，不剪媒体。
+- 整句恢复：恢复文字和 gap 状态。
+- 整句颜色：批量作用于句内字幕文字，不作用于 gap。
+- 位置调整：控制单句 `yPosition`。
+
+### 拆分与合并
+
+- Enter 拆分字幕：拆出的前后两段继承原字幕段 `speakerId / speakerName / yPosition`。
+- 合并字幕：默认使用靠前句子的 speaker。
+- 用户可在单句左侧单独改 speaker。
+
+## 说话人模式
+
+说话人分离是显式模式：
+
+1. 用户在识别前开启“识别说话人”。
+2. 前端请求 `transcribeAudio` 时传入 `enableSpeakerDiarization`。
+3. 豆包请求体增加 `enable_speaker_info: true`。
+4. 返回结果中的 `utterance.additions.speaker` 被归一化为 `speakerId`。
+5. `Speaker[]` 从字幕段派生并进入应用级状态。
+
+展示原则：
+
+- 非说话人模式：不展示 speaker 管理能力。
+- 说话人模式：只要有 `speakerId`，就展示 speaker 标签和管理入口。
+- 单 speaker 也不隐藏，因为后续仍需要重命名、编辑和归并。
+- speaker 标签属于编辑辅助；动态跳字仍只作用于正文字幕。
+
+## 导出逻辑
+
+SRT 导出位于 `src/lib/exportUtils.ts`，当前支持：
+
+- 普通字幕 SRT：只导出台词。
+- 内联 speaker SRT：格式为 `说话人：台词`。
+- 分轨 SRT：下载一个纯字幕 SRT 和一个 speaker-only SRT。
+- 按 speaker 拆分 SRT：每个有台词的 speaker 单独下载一个 SRT。
+
+时间映射统一通过 `calculatePlayableClips` 和 `mapOriginalToPlayableTime` 完成，确保导出的 SRT 与剪切后时间线一致。
+
+视频导出：
+
+- 剪切视频：`useVideoExporter` 调 FFmpeg WASM，按 `TimeRange[]` 输出 MP4。
+- 烧录字幕视频：`useOverlayExporter` 使用隐藏 video + canvas 画帧，再通过 MediaRecorder/FFmpeg 输出 MP4。
+- speaker 样式烧录暂未作为高优完成项，后续可单独设计。
+
+## 文件格式与限制
+
+输入识别：
+
+- 音频：MP3、WAV、M4A、AAC、FLAC、OGG、OGA、OPUS、WEBM
+- 视频：MP4、WEBM、MOV、AVI、MKV、FLV、WMV
+
+限制：
+
+- 最大文件大小：2GB
+- 最大时长：30 分钟
+- 推荐大小：200MB 内
+- 推荐时长：15 分钟内
+- Server Action body：30MB，接收浏览器抽取后的音频 Blob
+
+注意：格式识别不等于浏览器可预览。比如 AVI/MKV 可能可抽音频转写，但浏览器预览取决于编码支持。
+
+## 配置与安全
+
+环境变量只放 `.env.local`，该文件被 `.gitignore` 忽略。跨机器交接时使用 `env.example` 作为模板，不要把真实 key 写入文档或提交。
+
+关键变量：
+
+- `TRANSCRIPTION_PROVIDER`
+- `DOUBAO_API_KEY`
+- `DOUBAO_RESOURCE_ID`
+- `DOUBAO_UID`
+- `DOUBAO_RECOGNIZE_URL`
+- `UNIAPI_KEY`
+- `GEMINI_SEGMENTATION_MODEL`
+- `UNIAPI_GEMINI_BASE_URL`
+- `DEBUG_AI_SEGMENTATION`
+
+## 已知技术债
+
+- `src/app/page.tsx` 仍有若干历史未使用变量 warning。
+- Whisper provider 的日志仍偏调试化，后续可以收敛为低噪声日志。
+- `SubtitleEditor.tsx` 已承载大量交互状态，后续继续做功能时应优先抽出纯逻辑 helper 或 reducer。
+- 视频烧录导出还没有完整接入 speaker 样式。
+- 当前没有持久化项目文件；刷新页面会丢失编辑状态。

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { SegmentationOptions, DEFAULT_SEGMENTATION_OPTIONS } from '@/lib/segmentation';
 import { X } from 'lucide-react';
 import { useLanguage } from '@/contexts/LanguageContext';
@@ -21,20 +21,12 @@ const numberInputStyle: React.CSSProperties = {
   fontFamily: 'inherit',
 };
 
-export default function SegmentationRulesModal({ isOpen, options, onClose, onSave }: SegmentationRulesModalProps) {
+function SegmentationRulesContent({ options, onClose, onSave }: Omit<SegmentationRulesModalProps, 'isOpen'>) {
   const { t } = useLanguage();
-  const [draft, setDraft] = useState<SegmentationOptions>(DEFAULT_SEGMENTATION_OPTIONS);
-
-  useEffect(() => {
-    if (isOpen) {
-      setDraft({
-        ...DEFAULT_SEGMENTATION_OPTIONS,
-        ...options,
-      });
-    }
-  }, [isOpen, options]);
-
-  if (!isOpen) return null;
+  const [draft, setDraft] = useState<SegmentationOptions>({
+    ...DEFAULT_SEGMENTATION_OPTIONS,
+    ...options,
+  });
 
   const updateNumber = (key: keyof SegmentationOptions) => (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = Number(e.target.value);
@@ -178,5 +170,18 @@ export default function SegmentationRulesModal({ isOpen, options, onClose, onSav
         </div>
       </div>
     </div>
+  );
+}
+
+export default function SegmentationRulesModal({ isOpen, options, onClose, onSave }: SegmentationRulesModalProps) {
+  if (!isOpen) return null;
+
+  return (
+    <SegmentationRulesContent
+      key={JSON.stringify(options)}
+      options={options}
+      onClose={onClose}
+      onSave={onSave}
+    />
   );
 }

@@ -46,7 +46,6 @@ export const formatDuration = (seconds: number, t?: TranslationFunction): string
  * Check if file exceeds limits or needs suggestion
  */
 export const getFileSuggestion = (file: File, durationSeconds: number, t: TranslationFunction): FileSuggestion => {
-  const sizeMB = file.size / (1024 * 1024);
   const durationMin = Math.floor(durationSeconds / 60);
   const ext = getFileExtension(file.name);
 

@@ -26,7 +26,7 @@ export function calculatePlayableClips(segments: SubtitleSegment[], videoDuratio
             prevEnd = prevSeg.words[prevSeg.words.length - 1].end;
         }
 
-        seg.words.forEach((word, wordIdx) => {
+        seg.words.forEach((word) => {
             // 1. Handle Preceding Gap Cut
             if (word.isGapCut) {
                 // The gap is between prevEnd and word.start
