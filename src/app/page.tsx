@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef, useEffect, type PointerEvent as ReactPointerEvent } from 'react';
 import { Eye, List, Type, UploadCloud, FileAudio, FileText, ArrowUpDown } from 'lucide-react';
 import { useAudioExtractor } from '@/hooks/useAudioExtractor';
 import { useHistory } from '@/hooks/useHistory';
@@ -29,6 +29,12 @@ import { useOverlayExporter } from '@/hooks/useOverlayExporter';
 import { exportSrt } from '@/lib/exportUtils';
 
 const SEGMENTATION_RULES_STORAGE_KEY = 'pretty_sub.segmentation_rules.v1';
+const DEFAULT_EDITOR_PANEL_RATIO = 75;
+const MIN_EDITOR_PANEL_RATIO = 50;
+const MAX_EDITOR_PANEL_RATIO = 80;
+const MIN_PREVIEW_PANEL_WIDTH = 160;
+
+const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
 export default function Home() {
   const { t } = useLanguage();
@@ -67,8 +73,11 @@ export default function Home() {
   const [processingStage, setProcessingStage] = useState<'idle' | 'transcribing' | 'segmenting'>('idle');
   const [isResegmenting, setIsResegmenting] = useState(false);
   const [showRaw, setShowRaw] = useState(false);
+  const [editorPanelRatio, setEditorPanelRatio] = useState(DEFAULT_EDITOR_PANEL_RATIO);
+  const [isSplitResizing, setIsSplitResizing] = useState(false);
 
   const playerRef = useRef<PlayerRef>(null);
+  const splitViewRef = useRef<HTMLDivElement | null>(null);
 
   const { extractAudio, isReady, load, progress } = useAudioExtractor();
   const { exportState: videoExportState, exportTrimmedVideo, resetExport } = useVideoExporter();
@@ -78,6 +87,10 @@ export default function Home() {
   const maxDuration = segmentationOptions.maxDurationSeconds ?? DEFAULT_SEGMENTATION_OPTIONS.maxDurationSeconds;
   const punctuationSplit = segmentationOptions.punctuationSplit ?? DEFAULT_SEGMENTATION_OPTIONS.punctuationSplit;
   const punctuationMinChars = segmentationOptions.punctuationMinChars ?? DEFAULT_SEGMENTATION_OPTIONS.punctuationMinChars;
+  const isResizablePortraitLayout = videoMetadata?.kind !== 'video'
+    || !videoMetadata.width
+    || !videoMetadata.height
+    || videoMetadata.height >= videoMetadata.width;
   const segmentationSummary = t('segmentation.summary', {
     maxChars,
     maxDuration,
@@ -118,6 +131,57 @@ export default function Home() {
       Logger.warn('Failed to read segmentation rules from storage', error);
     }
   }, []);
+
+  const updateEditorPanelRatio = useCallback((clientX: number) => {
+    const container = splitViewRef.current;
+    if (!container) return;
+
+    const rect = container.getBoundingClientRect();
+    if (rect.width <= 0) return;
+
+    const rawRatio = ((clientX - rect.left) / rect.width) * 100;
+    const previewMinRatio = (MIN_PREVIEW_PANEL_WIDTH / rect.width) * 100;
+    const maxRatioByPreview = 100 - previewMinRatio;
+    const maxRatio = Math.max(
+      MIN_EDITOR_PANEL_RATIO,
+      Math.min(MAX_EDITOR_PANEL_RATIO, maxRatioByPreview)
+    );
+
+    setEditorPanelRatio(clamp(rawRatio, MIN_EDITOR_PANEL_RATIO, maxRatio));
+  }, []);
+
+  const startSplitResize = useCallback((event: ReactPointerEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    setIsSplitResizing(true);
+    updateEditorPanelRatio(event.clientX);
+  }, [updateEditorPanelRatio]);
+
+  useEffect(() => {
+    if (!isSplitResizing) return;
+
+    const handlePointerMove = (event: PointerEvent) => {
+      updateEditorPanelRatio(event.clientX);
+    };
+
+    const handlePointerUp = () => {
+      setIsSplitResizing(false);
+    };
+
+    const previousCursor = document.body.style.cursor;
+    const previousUserSelect = document.body.style.userSelect;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerUp);
+
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+      document.body.style.cursor = previousCursor;
+      document.body.style.userSelect = previousUserSelect;
+    };
+  }, [isSplitResizing, updateEditorPanelRatio]);
 
   useEffect(() => {
     try {
@@ -675,10 +739,38 @@ export default function Home() {
                     </button>
                   </div>
                 </div>
-                <div style={{ marginTop: 16, display: 'grid', gridTemplateColumns: 'minmax(400px, 1fr) 1fr', gap: 24, height: '70vh' }}>
+                <div
+                  ref={isResizablePortraitLayout ? splitViewRef : undefined}
+                  style={isResizablePortraitLayout ? {
+                    marginTop: 16,
+                    display: 'flex',
+                    alignItems: 'stretch',
+                    gap: 0,
+                    height: '70vh',
+                    minWidth: 0,
+                  } : {
+                    marginTop: 16,
+                    display: 'grid',
+                    gridTemplateColumns: 'minmax(400px, 1fr) 1fr',
+                    gap: 24,
+                    height: '70vh'
+                  }}
+                >
 
                   {/* Left: Editor */}
-                  <div className="glass-panel" style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                  <div
+                    className="glass-panel"
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      overflow: 'hidden',
+                      ...(isResizablePortraitLayout ? {
+                        flex: `0 1 ${editorPanelRatio}%`,
+                        minWidth: `${MIN_EDITOR_PANEL_RATIO}%`,
+                        maxWidth: `${MAX_EDITOR_PANEL_RATIO}%`,
+                      } : {})
+                    }}
+                  >
                     <div style={{ padding: '16px 24px', borderBottom: '1px solid var(--border-subtle)', background: 'rgba(0,0,0,0.2)' }}>
                       <h4 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
                         <Type size={16} /> {t('editor.title')}
@@ -696,8 +788,53 @@ export default function Home() {
 
                   </div>
 
+                  {isResizablePortraitLayout && (
+                    <button
+                      type="button"
+                      onPointerDown={startSplitResize}
+                      title={t('editor.resizePanels')}
+                      aria-label={t('editor.resizePanels')}
+                      style={{
+                        flex: '0 0 18px',
+                        width: 18,
+                        alignSelf: 'stretch',
+                        border: 'none',
+                        background: 'transparent',
+                        cursor: 'col-resize',
+                        padding: 0,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                    >
+                      <span
+                        style={{
+                          width: 4,
+                          height: 48,
+                          borderRadius: 999,
+                          background: isSplitResizing ? 'var(--accent-primary)' : 'rgba(255,255,255,0.16)',
+                          boxShadow: isSplitResizing ? '0 0 16px rgba(59,130,246,0.35)' : 'none',
+                          transition: 'background 0.15s, box-shadow 0.15s',
+                        }}
+                      />
+                    </button>
+                  )}
+
                   {/* Right: Preview */}
-                  <div className="glass-panel" style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', padding: 0, background: 'black' }}>
+                  <div
+                    className="glass-panel"
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      overflow: 'hidden',
+                      padding: 0,
+                      background: 'black',
+                      ...(isResizablePortraitLayout ? {
+                        flex: '1 1 0',
+                        minWidth: MIN_PREVIEW_PANEL_WIDTH,
+                      } : {})
+                    }}
+                  >
                     <div style={{ height: '100%', width: '100%' }}>
                       <Player
                         ref={playerRef}

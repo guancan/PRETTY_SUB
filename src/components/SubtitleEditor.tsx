@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { SubtitleSegment, SegmentWord } from '@/lib/segmentation';
-import { Trash2, Check, Scissors, MicOff, Palette, X, ArrowUpDown, LocateFixed, Users, Pencil } from 'lucide-react';
+import { Trash2, Check, Scissors, MicOff, X, LocateFixed, Users, Pencil, Plus, GripVertical } from 'lucide-react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { isCjkText, isPunctuationText, joinTranscriptTokens } from '@/lib/transcriptText';
 
@@ -48,9 +48,14 @@ interface SpeakerSummary {
     id: string;
     name: string;
     segmentCount: number;
-    firstSegmentId: string;
-    firstStart: number;
+    firstSegmentId?: string;
+    firstStart?: number;
     colorIndex: number;
+}
+
+interface ManualSpeaker {
+    id: string;
+    name: string;
 }
 
 const PRESET_COLORS = [
@@ -67,6 +72,17 @@ const SPEAKER_TAG_COLORS = [
     { text: '#fb7185', border: 'rgba(251, 113, 133, 0.36)', background: 'rgba(251, 113, 133, 0.10)' },
     { text: '#34d399', border: 'rgba(52, 211, 153, 0.34)', background: 'rgba(52, 211, 153, 0.10)' },
 ];
+
+const formatSegmentTimestamp = (seconds: number): string => {
+    const totalMs = Math.max(0, Math.round(seconds * 1000));
+    const minutes = Math.floor(totalMs / 60000);
+    const wholeSeconds = Math.floor((totalMs % 60000) / 1000);
+    const milliseconds = totalMs % 1000;
+
+    return `${minutes}:${String(wholeSeconds).padStart(2, '0')}.${String(milliseconds).padStart(3, '0')}`;
+};
+
+const formatSegmentTimestampMs = (seconds: number): number => Math.max(0, Math.round(seconds * 1000));
 
 const getItemWordIndices = (item: UIItem): number[] => (
     item.originalWordIndices ?? (item.originalWordIndex !== undefined ? [item.originalWordIndex] : [])
@@ -119,11 +135,14 @@ export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: E
 
     const [selection, setSelection] = useState<SelectionState>({ startId: null, endId: null });
     const [menuPosition, setMenuPosition] = useState<{ top: number; left: number } | null>(null);
+    const [segmentMenuId, setSegmentMenuId] = useState<string | null>(null);
     const [expandedLayoutId, setExpandedLayoutId] = useState<string | null>(null);
     const [isDraggingSelection, setIsDraggingSelection] = useState(false);
     const [tokenOverride, setTokenOverride] = useState<{ itemId: string; wordIndex: number } | null>(null);
     const [editingTarget, setEditingTarget] = useState<EditingTarget | null>(null);
     const [editingSpeaker, setEditingSpeaker] = useState<{ id: string; name: string } | null>(null);
+    const [manualSpeakers, setManualSpeakers] = useState<ManualSpeaker[]>([]);
+    const [mergingSpeaker, setMergingSpeaker] = useState<{ fromId: string; toId: string } | null>(null);
     const editInputRef = useRef<HTMLInputElement | null>(null);
     const speakerInputRef = useRef<HTMLInputElement | null>(null);
     const dragStartIdRef = useRef<string | null>(null);
@@ -358,6 +377,17 @@ export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: E
         const summaries: SpeakerSummary[] = [];
         const summaryById = new Map<string, SpeakerSummary>();
 
+        manualSpeakers.forEach((speaker) => {
+            const summary: SpeakerSummary = {
+                id: speaker.id,
+                name: speaker.name,
+                segmentCount: 0,
+                colorIndex: summaries.length % SPEAKER_TAG_COLORS.length,
+            };
+            summaryById.set(speaker.id, summary);
+            summaries.push(summary);
+        });
+
         segments.forEach((segment) => {
             if (!segment.speakerId) return;
 
@@ -376,6 +406,10 @@ export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: E
             }
 
             summary.segmentCount += 1;
+            if (!summary.firstSegmentId) {
+                summary.firstSegmentId = segment.id;
+                summary.firstStart = segment.start;
+            }
             const displayName = getSpeakerDisplayName(segment.speakerId, segment.speakerName);
             if (displayName) {
                 summary.name = displayName;
@@ -383,7 +417,7 @@ export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: E
         });
 
         return summaries;
-    }, [segments, getSpeakerDisplayName]);
+    }, [manualSpeakers, segments, getSpeakerDisplayName]);
 
     const speakerColorById = useMemo(() => (
         new Map(speakerSummaries.map((speaker) => [speaker.id, speaker.colorIndex]))
@@ -502,6 +536,7 @@ export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: E
         e.stopPropagation();
 
         const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+        setSegmentMenuId(null);
         setMenuPosition({
             top: rect.top - 10,
             left: rect.left + rect.width / 2
@@ -575,6 +610,7 @@ export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: E
         // Capture position for menu
         const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
         // Center above the clicked element
+        setSegmentMenuId(null);
         setMenuPosition({
             top: rect.top - 10, // 10px spacing above
             left: rect.left + rect.width / 2
@@ -598,6 +634,7 @@ export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: E
         if (!isDraggingSelection || !dragStartIdRef.current) return;
 
         const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+        setSegmentMenuId(null);
         setMenuPosition({
             top: rect.top - 10,
             left: rect.left + rect.width / 2
@@ -612,6 +649,7 @@ export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: E
         e.stopPropagation();
 
         const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+        setSegmentMenuId(null);
         setMenuPosition({
             top: rect.top - 10,
             left: rect.left + rect.width / 2
@@ -630,7 +668,10 @@ export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: E
 
     // Hide menu if clicked outside or scroll (basic handling)
     useEffect(() => {
-        const handleScroll = () => setMenuPosition(null);
+        const handleScroll = () => {
+            setMenuPosition(null);
+            setSegmentMenuId(null);
+        };
         window.addEventListener('scroll', handleScroll, { capture: true });
         return () => window.removeEventListener('scroll', handleScroll, { capture: true });
     }, []);
@@ -893,31 +934,70 @@ export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: E
         applySelectedWordTokenAction({ isDeleted: true });
     };
 
-    const keepOnlySelected = () => {
-        // Legacy: Keep selected, delete others.
-        // User behavior: "Keep Only" usually implies "Cut everything else".
-        // But user said "Delete" is text only. 
-        // If I "Keep Only Selected Text", do I delete other text? Yes.
-        // Do I cut other video? Maybe.
-        // For now, let's keep it as "Delete Text of Others" (isDeleted=true).
-        const selectedBySegment = new Map<string, Set<number>>();
-        items
-            .filter((item) => selectedIds.includes(item.id) && item.type === 'word')
-            .forEach((item) => {
-                if (!selectedBySegment.has(item.segmentId)) selectedBySegment.set(item.segmentId, new Set());
-                getTargetWordIndices(item).forEach((idx) => selectedBySegment.get(item.segmentId)!.add(idx));
-            });
+    const getSegmentItems = (segmentId: string) => items.filter((item) => item.segmentId === segmentId);
 
-        const newSegments = segments.map(seg => ({
-            ...seg,
-            words: seg.words.map((w, idx) => {
-                if (selectedBySegment.get(seg.id)?.has(idx)) {
-                    return w;
-                }
-                return { ...w, isDeleted: true };
-            })
-        }));
+    const updateSegmentWords = (segmentId: string, patch: Partial<SegmentWord>) => {
+        const newSegments = segments.map((seg) => {
+            if (seg.id !== segmentId) return seg;
+
+            const nextWords = seg.words.map((word) => ({ ...word, ...patch }));
+            return {
+                ...seg,
+                text: joinTranscriptTokens(nextWords),
+                words: nextWords,
+            };
+        });
+
         onSegmentsChange(newSegments);
+        setSegmentMenuId(null);
+        setMenuPosition(null);
+    };
+
+    const patchSegmentFromItems = (segmentId: string, patchForItem: (item: UIItem) => Partial<SegmentWord> | null) => {
+        const updates = new Map<string, Map<number, Partial<SegmentWord>>>();
+
+        getSegmentItems(segmentId).forEach((item) => {
+            const patch = patchForItem(item);
+            if (!patch) return;
+
+            getItemWordIndices(item).forEach((idx) => {
+                mergeWordPatch(updates, segmentId, idx, patch);
+            });
+        });
+
+        applyWordPatches(updates);
+        setSegmentMenuId(null);
+        setMenuPosition(null);
+    };
+
+    const cutSegment = (segmentId: string) => {
+        patchSegmentFromItems(segmentId, (item) => (
+            item.type === 'gap'
+                ? { isGapCut: true }
+                : { isCut: true }
+        ));
+    };
+
+    const deleteSegmentText = (segmentId: string) => {
+        updateSegmentWords(segmentId, { isDeleted: true });
+    };
+
+    const restoreSegment = (segmentId: string) => {
+        updateSegmentWords(segmentId, {
+            isCut: false,
+            isDeleted: false,
+            isGapCut: false,
+        });
+    };
+
+    const setSegmentColor = (segmentId: string, colorIndex: number) => {
+        updateSegmentWords(segmentId, { color: colorIndex });
+    };
+
+    const toggleSegmentLayout = (segmentId: string) => {
+        setExpandedLayoutId((currentId) => (currentId === segmentId ? null : segmentId));
+        setSegmentMenuId(null);
+        setMenuPosition(null);
     };
 
     const restoreSelected = () => {
@@ -984,11 +1064,15 @@ export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: E
     const clearSelection = () => {
         setSelection({ startId: null, endId: null });
         setMenuPosition(null);
+        setSegmentMenuId(null);
     };
 
     const focusSpeaker = (speaker: SpeakerSummary) => {
+        if (!speaker.firstSegmentId || speaker.firstStart === undefined) return;
+
         onSeek?.(speaker.firstStart);
         setMenuPosition(null);
+        setSegmentMenuId(null);
         setExpandedLayoutId(null);
 
         const firstItem = items.find((item) => item.segmentId === speaker.firstSegmentId && item.type === 'word');
@@ -1006,12 +1090,21 @@ export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: E
     const beginRenameSpeaker = (speaker: SpeakerSummary) => {
         setEditingSpeaker({ id: speaker.id, name: speaker.name });
         setMenuPosition(null);
+        setSegmentMenuId(null);
+        setMergingSpeaker(null);
     };
 
     const commitSpeakerRename = () => {
         if (!editingSpeaker) return;
 
         const nextName = editingSpeaker.name.trim();
+        setManualSpeakers((speakers) => (
+            speakers.map((speaker) => (
+                speaker.id === editingSpeaker.id
+                    ? { ...speaker, name: nextName || getSpeakerDisplayName(editingSpeaker.id) || editingSpeaker.id }
+                    : speaker
+            ))
+        ));
         const newSegments = segments.map((segment) => (
             segment.speakerId === editingSpeaker.id
                 ? { ...segment, speakerName: nextName || undefined }
@@ -1024,6 +1117,65 @@ export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: E
 
     const cancelSpeakerRename = () => {
         setEditingSpeaker(null);
+    };
+
+    const createSpeaker = () => {
+        const id = `manual-${crypto.randomUUID()}`;
+        const name = t('editor.newSpeakerName', { count: speakerSummaries.length + 1 });
+        setManualSpeakers((speakers) => [...speakers, { id, name }]);
+        setEditingSpeaker({ id, name });
+        setMergingSpeaker(null);
+        setSegmentMenuId(null);
+        setMenuPosition(null);
+    };
+
+    const assignSegmentSpeaker = (segmentId: string, speakerId: string) => {
+        const speaker = speakerSummaries.find((candidate) => candidate.id === speakerId);
+        if (!speaker) return;
+
+        const newSegments = segments.map((segment) => (
+            segment.id === segmentId
+                ? { ...segment, speakerId: speaker.id, speakerName: speaker.name }
+                : segment
+        ));
+
+        onSegmentsChange(newSegments);
+    };
+
+    const beginMergeSpeaker = (speaker: SpeakerSummary) => {
+        if (speaker.segmentCount === 0) {
+            setManualSpeakers((speakers) => speakers.filter((candidate) => candidate.id !== speaker.id));
+            return;
+        }
+
+        const target = speakerSummaries.find((candidate) => candidate.id !== speaker.id);
+        if (!target) return;
+
+        setMergingSpeaker({ fromId: speaker.id, toId: target.id });
+        setEditingSpeaker(null);
+        setSegmentMenuId(null);
+        setMenuPosition(null);
+    };
+
+    const commitSpeakerMerge = () => {
+        if (!mergingSpeaker) return;
+
+        const target = speakerSummaries.find((speaker) => speaker.id === mergingSpeaker.toId);
+        if (!target) return;
+
+        const newSegments = segments.map((segment) => (
+            segment.speakerId === mergingSpeaker.fromId
+                ? { ...segment, speakerId: target.id, speakerName: target.name }
+                : segment
+        ));
+
+        setManualSpeakers((speakers) => speakers.filter((speaker) => speaker.id !== mergingSpeaker.fromId));
+        onSegmentsChange(newSegments);
+        setMergingSpeaker(null);
+    };
+
+    const cancelSpeakerMerge = () => {
+        setMergingSpeaker(null);
     };
 
     // Group items by segment for render
@@ -1040,7 +1192,7 @@ export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: E
         <div className="subtitle-editor" style={{ width: '100%', userSelect: 'none', paddingBottom: 100 }}>
 
             {/* Floating Action Menu */}
-            {selectedIds.length > 0 && menuPosition && (
+            {selectedIds.length > 0 && menuPosition && !segmentMenuId && (
                 <div className="glass-panel" style={{
                     position: 'fixed',
                     top: menuPosition.top,
@@ -1156,12 +1308,35 @@ export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: E
                         <Users size={14} />
                         <span>{t('editor.speakers')}</span>
                         <span style={{ opacity: 0.7 }}>{t('editor.speakerCount', { count: speakerSummaries.length })}</span>
+                        <button
+                            onClick={createSpeaker}
+                            title={t('editor.speakerCreate')}
+                            style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                width: 22,
+                                height: 22,
+                                marginLeft: 2,
+                                border: '1px solid rgba(255,255,255,0.12)',
+                                borderRadius: 5,
+                                background: 'rgba(255,255,255,0.04)',
+                                color: 'var(--text-primary)',
+                                cursor: 'pointer',
+                                padding: 0,
+                            }}
+                        >
+                            <Plus size={13} />
+                        </button>
                     </div>
 
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                         {speakerSummaries.map((speaker) => {
                             const tone = SPEAKER_TAG_COLORS[speaker.colorIndex];
                             const isRenamingSpeaker = editingSpeaker?.id === speaker.id;
+                            const isMergingSpeaker = mergingSpeaker?.fromId === speaker.id;
+                            const mergeTargets = speakerSummaries.filter((candidate) => candidate.id !== speaker.id);
+                            const canMergeOrDelete = speaker.segmentCount === 0 || mergeTargets.length > 0;
                             return (
                                 <div
                                     key={speaker.id}
@@ -1170,7 +1345,7 @@ export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: E
                                         display: 'inline-flex',
                                         alignItems: 'center',
                                         gap: 4,
-                                        maxWidth: isRenamingSpeaker ? 270 : 240,
+                                        maxWidth: isRenamingSpeaker || isMergingSpeaker ? 320 : 270,
                                         minHeight: 28,
                                         border: `1px solid ${tone.border}`,
                                         borderRadius: 6,
@@ -1181,7 +1356,49 @@ export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: E
                                         lineHeight: 1.25,
                                     }}
                                 >
-                                    {isRenamingSpeaker ? (
+                                    {isMergingSpeaker ? (
+                                        <>
+                                            <span style={{
+                                                width: 7,
+                                                height: 7,
+                                                borderRadius: '50%',
+                                                background: tone.text,
+                                                flex: '0 0 auto',
+                                                marginLeft: 3,
+                                            }} />
+                                            <span style={{ color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
+                                                {t('editor.speakerMergeInto')}
+                                            </span>
+                                            <select
+                                                value={mergingSpeaker.toId}
+                                                onChange={(event) => setMergingSpeaker({ fromId: speaker.id, toId: event.target.value })}
+                                                style={{
+                                                    minWidth: 92,
+                                                    maxWidth: 150,
+                                                    border: `1px solid ${tone.border}`,
+                                                    borderRadius: 4,
+                                                    background: 'rgba(0,0,0,0.18)',
+                                                    color: 'inherit',
+                                                    font: 'inherit',
+                                                    padding: '2px 4px',
+                                                    outline: 'none',
+                                                }}
+                                            >
+                                                {mergeTargets.map((target) => (
+                                                    <option key={target.id} value={target.id}>
+                                                        {target.name}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                            <span style={{
+                                                color: 'var(--text-secondary)',
+                                                opacity: 0.78,
+                                                whiteSpace: 'nowrap',
+                                            }}>
+                                                {t('editor.speakerSegmentCount', { count: speaker.segmentCount })}
+                                            </span>
+                                        </>
+                                    ) : isRenamingSpeaker ? (
                                         <>
                                             <span style={{
                                                 width: 7,
@@ -1308,6 +1525,72 @@ export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: E
                                             >
                                                 <X size={13} />
                                             </button>
+                                            <button
+                                                onClick={() => beginMergeSpeaker(speaker)}
+                                                disabled={!canMergeOrDelete}
+                                                title={
+                                                    speaker.segmentCount === 0
+                                                        ? t('editor.speakerDeleteEmpty', { name: speaker.name })
+                                                        : t('editor.speakerMergeTitle', { name: speaker.name })
+                                                }
+                                                style={{
+                                                    display: 'inline-flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center',
+                                                    width: 22,
+                                                    height: 22,
+                                                    border: 'none',
+                                                    borderRadius: 4,
+                                                    background: 'transparent',
+                                                    color: canMergeOrDelete ? 'inherit' : 'var(--text-secondary)',
+                                                    cursor: canMergeOrDelete ? 'pointer' : 'not-allowed',
+                                                    padding: 0,
+                                                    opacity: canMergeOrDelete ? 0.8 : 0.35,
+                                                }}
+                                            >
+                                                <Trash2 size={12} />
+                                            </button>
+                                        </>
+                                    ) : isMergingSpeaker ? (
+                                        <>
+                                            <button
+                                                onClick={commitSpeakerMerge}
+                                                title={t('editor.speakerMergeSave')}
+                                                style={{
+                                                    display: 'inline-flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center',
+                                                    width: 22,
+                                                    height: 22,
+                                                    border: 'none',
+                                                    borderRadius: 4,
+                                                    background: 'rgba(255,255,255,0.10)',
+                                                    color: 'inherit',
+                                                    cursor: 'pointer',
+                                                    padding: 0,
+                                                }}
+                                            >
+                                                <Check size={13} />
+                                            </button>
+                                            <button
+                                                onClick={cancelSpeakerMerge}
+                                                title={t('editor.speakerMergeCancel')}
+                                                style={{
+                                                    display: 'inline-flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center',
+                                                    width: 22,
+                                                    height: 22,
+                                                    border: 'none',
+                                                    borderRadius: 4,
+                                                    background: 'transparent',
+                                                    color: 'var(--text-secondary)',
+                                                    cursor: 'pointer',
+                                                    padding: 0,
+                                                }}
+                                            >
+                                                <X size={13} />
+                                            </button>
                                         </>
                                     ) : (
                                         <button
@@ -1339,7 +1622,7 @@ export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: E
             )}
 
             {/* Render Lines */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {itemsBySegment.map(([segId, segmentItems]) => {
                     if (segmentItems.length === 0) return null;
                     const currentSegment = segments.find(s => s.id === segId);
@@ -1347,59 +1630,201 @@ export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: E
                     const speakerTone = currentSegment?.speakerId
                         ? SPEAKER_TAG_COLORS[speakerColorById.get(currentSegment.speakerId) ?? 0]
                         : null;
-                    const startTime = segmentItems[0].start.toFixed(2);
+                    const startTime = formatSegmentTimestamp(segmentItems[0].start);
+                    const startTimeMs = formatSegmentTimestampMs(segmentItems[0].start);
 
                     return (
-                        <div key={segId} data-segment-id={segId} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                            <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+                        <div key={segId} data-segment-id={segId} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                            <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
                                 <div style={{
-                                    minWidth: 76,
+                                    flex: '0 0 126px',
+                                    width: 126,
                                     fontSize: '0.75rem',
                                     color: 'var(--text-secondary)',
-                                    paddingTop: 6,
+                                    paddingTop: 4,
                                     fontFamily: 'monospace',
-                                    display: 'flex',
-                                    flexDirection: 'column',
-                                    gap: 4
+                                    display: 'grid',
+                                    gridTemplateColumns: '24px minmax(0, 1fr)',
+                                    columnGap: 6,
+                                    alignItems: 'start',
+                                    position: 'relative'
                                 }}>
-                                    {speakerLabel && (
-                                        <span style={{
-                                            alignSelf: 'flex-start',
-                                            maxWidth: 62,
-                                            overflow: 'hidden',
-                                            textOverflow: 'ellipsis',
-                                            whiteSpace: 'nowrap',
-                                            border: `1px solid ${speakerTone?.border ?? 'rgba(255,255,255,0.12)'}`,
-                                            borderRadius: 5,
-                                            padding: '2px 6px',
-                                            fontFamily: 'inherit',
-                                            fontSize: '0.68rem',
-                                            lineHeight: 1.25,
-                                            color: speakerTone?.text ?? 'var(--accent-primary)',
-                                            background: speakerTone?.background ?? 'transparent',
-                                            opacity: 1
-                                        }}>
-                                            {speakerLabel}
-                                        </span>
-                                    )}
-                                    <span style={{ opacity: 0.7 }}>{startTime}</span>
                                     <button
-                                        onClick={() => setExpandedLayoutId(expandedLayoutId === segId ? null : segId)}
-                                        title={t('editor.adjustPosition')}
+                                        onClick={(event) => {
+                                            event.stopPropagation();
+                                            setSegmentMenuId(segmentMenuId === segId ? null : segId);
+                                            setMenuPosition(null);
+                                        }}
+                                        title={t('editor.segmentMenu')}
                                         style={{
-                                            background: 'none',
-                                            border: 'none',
-                                            color: expandedLayoutId === segId ? 'var(--accent-primary)' : 'inherit',
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            width: 24,
+                                            height: 24,
+                                            border: `1px solid ${segmentMenuId === segId || expandedLayoutId === segId ? 'rgba(139, 156, 255, 0.42)' : 'rgba(255,255,255,0.10)'}`,
+                                            borderRadius: 5,
+                                            background: segmentMenuId === segId || expandedLayoutId === segId ? 'rgba(139, 156, 255, 0.12)' : 'rgba(255,255,255,0.03)',
+                                            color: segmentMenuId === segId || expandedLayoutId === segId ? 'var(--accent-primary)' : 'var(--text-secondary)',
                                             cursor: 'pointer',
                                             padding: 0,
-                                            opacity: 0.6
+                                            opacity: 0.9
                                         }}
                                     >
-                                        <ArrowUpDown size={14} />
+                                        <GripVertical size={14} />
                                     </button>
+
+                                    {segmentMenuId === segId && (
+                                        <div
+                                            className="glass-panel"
+                                            style={{
+                                                position: 'absolute',
+                                                top: 28,
+                                                left: 0,
+                                                zIndex: 1000,
+                                                width: 224,
+                                                padding: 6,
+                                                border: '1px solid rgba(255,255,255,0.1)',
+                                                borderRadius: 12,
+                                                background: 'rgba(20, 20, 20, 0.95)',
+                                                backdropFilter: 'blur(16px)',
+                                                boxShadow: '0 10px 40px rgba(0,0,0,0.5)',
+                                                display: 'flex',
+                                                flexDirection: 'column',
+                                                gap: 4,
+                                            }}
+                                        >
+                                            <div style={{ display: 'flex', justifyContent: 'center', gap: 8, padding: '8px 4px', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                                                {PRESET_COLORS.map((color, colorIndex) => (
+                                                    <button
+                                                        key={colorIndex}
+                                                        onClick={() => setSegmentColor(segId, colorIndex)}
+                                                        style={{
+                                                            width: 20,
+                                                            height: 20,
+                                                            borderRadius: '50%',
+                                                            background: color,
+                                                            border: '2px solid rgba(255,255,255,0.2)',
+                                                            cursor: 'pointer',
+                                                            transform: 'scale(1)',
+                                                            transition: 'transform 0.1s',
+                                                            padding: 0
+                                                        }}
+                                                        onMouseEnter={event => event.currentTarget.style.transform = 'scale(1.2)'}
+                                                        onMouseLeave={event => event.currentTarget.style.transform = 'scale(1)'}
+                                                        title={`Color ${colorIndex + 1}`}
+                                                    />
+                                                ))}
+                                            </div>
+                                            <button
+                                                onClick={() => cutSegment(segId)}
+                                                className="btn-editor-action vertical cut"
+                                            >
+                                                <Scissors size={14} />
+                                                <span>{t('editor.segmentCutVideo')}</span>
+                                            </button>
+                                            <button
+                                                onClick={() => deleteSegmentText(segId)}
+                                                className="btn-editor-action vertical delete"
+                                            >
+                                                <Trash2 size={14} />
+                                                <span>{t('editor.segmentDeleteText')}</span>
+                                            </button>
+                                            <button
+                                                onClick={() => restoreSegment(segId)}
+                                                className="btn-editor-action vertical restore"
+                                            >
+                                                <Check size={14} />
+                                                <span>{t('editor.restore')}</span>
+                                            </button>
+                                            <button
+                                                onClick={() => toggleSegmentLayout(segId)}
+                                                className="btn-editor-action vertical"
+                                            >
+                                                <LocateFixed size={14} />
+                                                <span>{t('editor.segmentAdjustPosition')}</span>
+                                            </button>
+                                            <div style={{ height: 1, background: 'rgba(255,255,255,0.05)', margin: '2px 0' }} />
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 8px' }}>
+                                                <span style={{ fontSize: '0.7rem', color: '#555' }}>{t('editor.segmentSelected', { count: 1 })}</span>
+                                                <button
+                                                    onClick={() => setSegmentMenuId(null)}
+                                                    style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer', padding: 2 }}
+                                                >
+                                                    <X size={12} />
+                                                </button>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    <div style={{
+                                        display: 'flex',
+                                        minWidth: 0,
+                                        flexDirection: 'column',
+                                        gap: 3
+                                    }}>
+                                        {speakerSummaries.length > 0 && currentSegment ? (
+                                            <select
+                                                value={currentSegment.speakerId ?? ''}
+                                                onChange={(event) => assignSegmentSpeaker(currentSegment.id, event.target.value)}
+                                                title={t('editor.segmentSpeakerSelect')}
+                                                style={{
+                                                    alignSelf: 'flex-start',
+                                                    width: '100%',
+                                                    maxWidth: 94,
+                                                    border: `1px solid ${speakerTone?.border ?? 'rgba(255,255,255,0.12)'}`,
+                                                    borderRadius: 5,
+                                                    padding: '1px 4px',
+                                                    fontFamily: 'inherit',
+                                                    fontSize: '0.67rem',
+                                                    lineHeight: 1.25,
+                                                    color: speakerTone?.text ?? 'var(--accent-primary)',
+                                                    background: speakerTone?.background ?? 'rgba(255,255,255,0.04)',
+                                                    outline: 'none',
+                                                    cursor: 'pointer',
+                                                }}
+                                            >
+                                                {!currentSegment.speakerId && (
+                                                    <option value="" disabled>
+                                                        {t('editor.speakerSelectPlaceholder')}
+                                                    </option>
+                                                )}
+                                                {speakerSummaries.map((speaker) => (
+                                                    <option key={speaker.id} value={speaker.id}>
+                                                        {speaker.name}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                        ) : speakerLabel && (
+                                            <span style={{
+                                                alignSelf: 'flex-start',
+                                                maxWidth: 94,
+                                                overflow: 'hidden',
+                                                textOverflow: 'ellipsis',
+                                                whiteSpace: 'nowrap',
+                                                border: `1px solid ${speakerTone?.border ?? 'rgba(255,255,255,0.12)'}`,
+                                                borderRadius: 5,
+                                                padding: '1px 5px',
+                                                fontFamily: 'inherit',
+                                                fontSize: '0.67rem',
+                                                lineHeight: 1.25,
+                                                color: speakerTone?.text ?? 'var(--accent-primary)',
+                                                background: speakerTone?.background ?? 'transparent',
+                                                opacity: 1
+                                            }}>
+                                                {speakerLabel}
+                                            </span>
+                                        )}
+                                        <span
+                                            title={t('editor.timestampTitle', { time: startTime, milliseconds: startTimeMs })}
+                                            style={{ opacity: 0.68, fontSize: '0.7rem', lineHeight: 1.1 }}
+                                        >
+                                            {startTime}
+                                        </span>
+                                    </div>
                                 </div>
 
-                                <div style={{ flex: 1, display: 'flex', flexWrap: 'wrap', columnGap: 1, rowGap: 3, alignItems: 'center' }}>
+                                <div style={{ flex: 1, display: 'flex', flexWrap: 'wrap', columnGap: 0, rowGap: 2, alignItems: 'center' }}>
                                     {segmentItems.map(item => {
                                         const isSelected = selectedIds.includes(item.id);
                                         const isGap = item.type === 'gap';
@@ -1415,10 +1840,10 @@ export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: E
                                                 onDoubleClick={(e) => beginTextEdit(item, getItemWordIndices(item), e)}
                                                 className={`editor-chip ${isGap ? 'gap-chip' : 'word-chip'} ${isSelected ? 'selected' : ''} ${item.isDeleted ? 'deleted' : ''}`}
                                                 style={{
-                                                    padding: isGap ? '2px 4px' : '2px 3px',
-                                                    borderRadius: 6,
+                                                    padding: isGap ? '1px 3px' : '1px 2px',
+                                                    borderRadius: 5,
                                                     cursor: 'pointer',
-                                                    fontSize: isGap ? '0.75rem' : '1.1rem',
+                                                    fontSize: isGap ? '0.7rem' : '1rem',
                                                     transition: 'all 0.15s ease-out',
                                                     ...(!isGap ? {
                                                         // WORD STYLES
@@ -1516,7 +1941,7 @@ export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: E
                                 const currentY = currentSegment?.yPosition;
 
                                 return (
-                                    <div style={{ marginLeft: 66, marginBottom: 16, padding: '8px 12px', background: 'rgba(255,255,255,0.03)', borderRadius: 8, display: 'flex', alignItems: 'center', gap: 12 }}>
+                                    <div style={{ marginLeft: 134, marginBottom: 10, padding: '7px 10px', background: 'rgba(255,255,255,0.03)', borderRadius: 7, display: 'flex', alignItems: 'center', gap: 10 }}>
                                         <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
                                             {t('editor.yAxis')}: {currentY !== undefined ? `${currentY}%` : t('editor.default')}
                                         </span>

@@ -65,6 +65,15 @@
     "deleteText": "（仅文本）",
     "restore": "恢复",
     "adjustPosition": "调整垂直位置",
+    "segmentMenu": "句子菜单",
+    "segmentCut": "整句剪切",
+    "segmentDelete": "整句删除",
+    "segmentCutVideo": "整句剪切（视频）",
+    "segmentDeleteText": "整句删除（仅文本）",
+    "segmentAdjustPosition": "位置调整",
+    "segmentSelected": "{count} 句已选择",
+    "resizePanels": "拖动调整编辑器和预览宽度",
+    "timestampTitle": "精确时间：{time}（{milliseconds} 毫秒）",
     "yAxis": "Y轴",
     "default": "默认",
     "reset": "重置",
@@ -77,7 +86,16 @@
     "speakerRenameTitle": "重命名 {name}",
     "speakerRenameSave": "保存说话人名称",
     "speakerRenameCancel": "取消重命名",
-    "speakerNamePlaceholder": "说话人名称"
+    "speakerNamePlaceholder": "说话人名称",
+    "speakerCreate": "新增说话人",
+    "newSpeakerName": "说话人 {count}",
+    "speakerMergeTitle": "删除并归并 {name}",
+    "speakerDeleteEmpty": "删除空说话人 {name}",
+    "speakerMergeInto": "归并到",
+    "speakerMergeSave": "确认归并",
+    "speakerMergeCancel": "取消归并",
+    "segmentSpeakerSelect": "选择这一句的说话人",
+    "speakerSelectPlaceholder": "选择说话人"
   },
   "fontSelector": {
     "title": "字体选择"
