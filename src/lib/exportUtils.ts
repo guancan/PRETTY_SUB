@@ -1,4 +1,4 @@
-import { SubtitleSegment } from './segmentation';
+import { Speaker, SubtitleSegment } from './segmentation';
 import { calculatePlayableClips, mapOriginalToPlayableTime, TimeRange } from './timelineUtils';
 import { joinTranscriptTokens } from './transcriptText';
 
@@ -20,6 +20,110 @@ export interface SrtSegment {
     text: string;
 }
 
+export interface SrtExportOptions {
+    includeSpeakerName?: boolean;
+    speakers?: Speaker[];
+    speakerExportMode?: SrtSpeakerExportMode;
+}
+
+export type SrtSpeakerExportMode = 'inline' | 'separate' | 'per-speaker';
+
+export interface SpeakerSubtitleSrtGroup {
+    speakerId: string;
+    speakerName: string;
+    srtSegments: SrtSegment[];
+}
+
+const getSegmentSpeakerName = (segment: SubtitleSegment, speakers: Speaker[] = []): string | null => {
+    if (!segment.speakerId) return null;
+    const speaker = speakers.find((candidate) => candidate.id === segment.speakerId);
+    return speaker?.name?.trim() || segment.speakerName?.trim() || null;
+};
+
+const getFilenameParts = (filename: string): { base: string; extension: string } => {
+    const extensionIndex = filename.lastIndexOf('.');
+    if (extensionIndex <= 0) return { base: filename, extension: '.srt' };
+    return {
+        base: filename.slice(0, extensionIndex),
+        extension: filename.slice(extensionIndex),
+    };
+};
+
+const getSpeakerTrackFilename = (filename: string): string => {
+    const { base, extension } = getFilenameParts(filename);
+    return `${base}_speakers${extension}`;
+};
+
+const sanitizeFilenamePart = (value: string, fallback: string): string => {
+    const normalized = value
+        .trim()
+        .replace(/[\\/:*?"<>|]+/g, '_')
+        .replace(/\s+/g, '_')
+        .replace(/_+/g, '_')
+        .replace(/^_+|_+$/g, '');
+    return (normalized || fallback).slice(0, 80);
+};
+
+const getSpeakerSubtitleFilename = (
+    filename: string,
+    speakerName: string,
+    speakerId: string,
+    index: number,
+    usedFilenames: Set<string>
+): string => {
+    const { base, extension } = getFilenameParts(filename);
+    const safeName = sanitizeFilenamePart(speakerName, `speaker-${index + 1}`);
+    const safeId = sanitizeFilenamePart(speakerId, String(index + 1));
+    let suffix = safeName;
+    let candidate = `${base}_${suffix}${extension}`;
+
+    if (usedFilenames.has(candidate.toLowerCase())) {
+        suffix = `${safeName}_${safeId}`;
+        candidate = `${base}_${suffix}${extension}`;
+    }
+
+    if (usedFilenames.has(candidate.toLowerCase())) {
+        candidate = `${base}_${suffix}_${index + 1}${extension}`;
+    }
+
+    usedFilenames.add(candidate.toLowerCase());
+    return candidate;
+};
+
+const buildSrtSegmentsWithClips = (
+    segments: SubtitleSegment[],
+    clips: TimeRange[],
+    options: SrtExportOptions = {}
+): SrtSegment[] => {
+    const srtSegments: SrtSegment[] = [];
+    let index = 1;
+
+    for (const seg of segments) {
+        const visibleWords = seg.words.filter(w => !w.isDeleted && !w.isCut);
+        if (visibleWords.length === 0) continue;
+
+        const text = joinTranscriptTokens(visibleWords).trim();
+        if (!text) continue;
+        const speakerName = options.includeSpeakerName ? getSegmentSpeakerName(seg, options.speakers) : null;
+        const displayText = speakerName ? `${speakerName}：${text}` : text;
+
+        const start = mapOriginalToPlayableTime(visibleWords[0].start, clips);
+        const end = mapOriginalToPlayableTime(visibleWords[visibleWords.length - 1].end, clips);
+
+        if (end - start < 0.01) continue;
+
+        srtSegments.push({
+            index,
+            start: formatSrtTimecode(start),
+            end: formatSrtTimecode(end),
+            text: displayText,
+        });
+        index++;
+    }
+
+    return srtSegments;
+};
+
 /**
  * Builds SRT segments from subtitle data.
  * Filters out deleted/cut words, remaps timestamps to trimmed timeline,
@@ -27,37 +131,82 @@ export interface SrtSegment {
  */
 export function buildSrtSegments(
     segments: SubtitleSegment[],
-    videoDuration: number
+    videoDuration: number,
+    options: SrtExportOptions = {}
+): SrtSegment[] {
+    const clips = calculatePlayableClips(segments, videoDuration);
+    return buildSrtSegmentsWithClips(segments, clips, options);
+}
+
+/**
+ * Builds a speaker-only SRT track aligned to the visible subtitle segments.
+ */
+export function buildSpeakerSrtSegments(
+    segments: SubtitleSegment[],
+    videoDuration: number,
+    speakers: Speaker[] = []
 ): SrtSegment[] {
     const clips = calculatePlayableClips(segments, videoDuration);
     const srtSegments: SrtSegment[] = [];
     let index = 1;
 
     for (const seg of segments) {
-        // Filter: keep only words that are neither deleted nor cut
         const visibleWords = seg.words.filter(w => !w.isDeleted && !w.isCut);
         if (visibleWords.length === 0) continue;
 
-        const text = joinTranscriptTokens(visibleWords).trim();
-        if (!text) continue;
+        const speakerName = getSegmentSpeakerName(seg, speakers);
+        if (!speakerName) continue;
 
-        // Map original timestamps to the playable (trimmed) timeline
         const start = mapOriginalToPlayableTime(visibleWords[0].start, clips);
         const end = mapOriginalToPlayableTime(visibleWords[visibleWords.length - 1].end, clips);
 
-        // Skip zero-duration segments
         if (end - start < 0.01) continue;
 
         srtSegments.push({
             index,
             start: formatSrtTimecode(start),
             end: formatSrtTimecode(end),
-            text,
+            text: speakerName,
         });
         index++;
     }
 
     return srtSegments;
+}
+
+/**
+ * Builds one subtitle SRT group per speaker.
+ */
+export function buildPerSpeakerSrtGroups(
+    segments: SubtitleSegment[],
+    videoDuration: number,
+    speakers: Speaker[] = []
+): SpeakerSubtitleSrtGroup[] {
+    const clips = calculatePlayableClips(segments, videoDuration);
+    const groups = new Map<string, { speakerId: string; speakerName: string; segments: SubtitleSegment[] }>();
+
+    for (const seg of segments) {
+        const visibleWords = seg.words.filter(w => !w.isDeleted && !w.isCut);
+        if (visibleWords.length === 0) continue;
+        if (!joinTranscriptTokens(visibleWords).trim()) continue;
+
+        const speakerName = getSegmentSpeakerName(seg, speakers) || seg.speakerName?.trim() || 'Unknown Speaker';
+        const speakerId = seg.speakerId || `unknown-${speakerName}`;
+
+        if (!groups.has(speakerId)) {
+            groups.set(speakerId, { speakerId, speakerName, segments: [] });
+        }
+
+        groups.get(speakerId)?.segments.push(seg);
+    }
+
+    return Array.from(groups.values())
+        .map((group) => ({
+            speakerId: group.speakerId,
+            speakerName: group.speakerName,
+            srtSegments: buildSrtSegmentsWithClips(group.segments, clips),
+        }))
+        .filter((group) => group.srtSegments.length > 0);
 }
 
 /**
@@ -89,9 +238,31 @@ export function downloadBlob(blob: Blob, filename: string): void {
 export function exportSrt(
     segments: SubtitleSegment[],
     videoDuration: number,
-    filename: string = 'subtitles.srt'
+    filename: string = 'subtitles.srt',
+    options: SrtExportOptions = {}
 ): void {
-    const srtSegments = buildSrtSegments(segments, videoDuration);
+    if (options.includeSpeakerName && options.speakerExportMode === 'per-speaker') {
+        const groups = buildPerSpeakerSrtGroups(segments, videoDuration, options.speakers);
+        const usedFilenames = new Set<string>();
+        groups.forEach((group, index) => {
+            const groupFilename = getSpeakerSubtitleFilename(filename, group.speakerName, group.speakerId, index, usedFilenames);
+            downloadBlob(new Blob([serializeSrt(group.srtSegments)], { type: 'text/plain;charset=utf-8' }), groupFilename);
+        });
+        return;
+    }
+
+    if (options.includeSpeakerName && options.speakerExportMode === 'separate') {
+        const subtitleSegments = buildSrtSegments(segments, videoDuration, {
+            ...options,
+            includeSpeakerName: false,
+        });
+        const speakerSegments = buildSpeakerSrtSegments(segments, videoDuration, options.speakers);
+        downloadBlob(new Blob([serializeSrt(subtitleSegments)], { type: 'text/plain;charset=utf-8' }), filename);
+        downloadBlob(new Blob([serializeSrt(speakerSegments)], { type: 'text/plain;charset=utf-8' }), getSpeakerTrackFilename(filename));
+        return;
+    }
+
+    const srtSegments = buildSrtSegments(segments, videoDuration, options);
     const srtText = serializeSrt(srtSegments);
     const blob = new Blob([srtText], { type: 'text/plain;charset=utf-8' });
     downloadBlob(blob, filename);

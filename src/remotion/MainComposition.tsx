@@ -1,6 +1,6 @@
 import React from 'react';
 import { AbsoluteFill, Audio, Video, Series } from 'remotion';
-import { SubtitleSegment } from '@/lib/segmentation';
+import { Speaker, SubtitleSegment } from '@/lib/segmentation';
 import { calculatePlayableClips } from '@/lib/timelineUtils';
 import { DynamicCaptions } from './DynamicCaptions';
 import type { MediaKind } from '@/lib/videoUtils';
@@ -13,9 +13,21 @@ export interface MainCompositionProps {
     fontFamily?: string;
     videoDurationSeconds?: number; // Optional but recommended for accurate cuts
     globalYPosition?: number;
+    speakers?: Speaker[];
+    showSpeakerName?: boolean;
 }
 
-export const MainComposition: React.FC<MainCompositionProps> = ({ videoUrl, mediaKind = 'video', mediaCanPreview = true, segments, fontFamily, videoDurationSeconds, globalYPosition }) => {
+export const MainComposition: React.FC<MainCompositionProps> = ({
+    videoUrl,
+    mediaKind = 'video',
+    mediaCanPreview = true,
+    segments,
+    fontFamily,
+    videoDurationSeconds,
+    globalYPosition,
+    speakers,
+    showSpeakerName,
+}) => {
     // Calculate clips on each render
     // If videoDurationSeconds is missing, default to a high number or try to estimate
     // Ideally we pass it from Page
@@ -58,6 +70,8 @@ export const MainComposition: React.FC<MainCompositionProps> = ({ videoUrl, medi
                                     fontFamily={fontFamily}
                                     globalTimeOffset={clip.start}
                                     globalYPosition={globalYPosition}
+                                    speakers={speakers}
+                                    showSpeakerName={showSpeakerName}
                                 />
                             </AbsoluteFill>
                         </Series.Sequence>

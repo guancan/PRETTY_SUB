@@ -24,6 +24,14 @@ export interface SubtitleSegment {
     channelId?: number;
 }
 
+export type SpeakerSource = 'provider' | 'manual';
+
+export interface Speaker {
+    id: string;
+    name: string;
+    source: SpeakerSource;
+}
+
 export interface SegmentationOptions {
     maxCharsPerLine?: number;
     maxDurationSeconds?: number;

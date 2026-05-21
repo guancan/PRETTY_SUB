@@ -1,6 +1,6 @@
 import React from 'react';
 import { useCurrentFrame, useVideoConfig } from 'remotion';
-import { SubtitleSegment } from '@/lib/segmentation';
+import { Speaker, SubtitleSegment } from '@/lib/segmentation';
 import { shouldInsertSpaceBetweenTokens } from '@/lib/transcriptText';
 
 // Constants for preset colors (matching Editor)
@@ -10,15 +10,31 @@ const PRESET_COLORS = [
     '#22c55e',        // 2: Green
     '#3b82f6',        // 3: Blue
 ];
+const CAPTION_FONT_SIZE = 48;
 
 interface DynamicCaptionsProps {
     segments: SubtitleSegment[];
     fontFamily?: string;
     globalTimeOffset?: number; // Added to support time shifting
     globalYPosition?: number; // 0-100 percentage from top
+    speakers?: Speaker[];
+    showSpeakerName?: boolean;
 }
 
-export const DynamicCaptions: React.FC<DynamicCaptionsProps> = ({ segments, fontFamily, globalTimeOffset = 0, globalYPosition = 80 }) => {
+const getSegmentSpeakerName = (segment: SubtitleSegment, speakers: Speaker[] = []): string | null => {
+    if (!segment.speakerId) return null;
+    const speaker = speakers.find((candidate) => candidate.id === segment.speakerId);
+    return speaker?.name?.trim() || segment.speakerName?.trim() || null;
+};
+
+export const DynamicCaptions: React.FC<DynamicCaptionsProps> = ({
+    segments,
+    fontFamily,
+    globalTimeOffset = 0,
+    globalYPosition = 80,
+    speakers = [],
+    showSpeakerName = false,
+}) => {
     const frame = useCurrentFrame();
     const { fps } = useVideoConfig();
     const currentTime = (frame / fps) + globalTimeOffset;
@@ -32,6 +48,7 @@ export const DynamicCaptions: React.FC<DynamicCaptionsProps> = ({ segments, font
     if (!activeSegment) return null;
 
     const yPos = activeSegment.yPosition !== undefined ? activeSegment.yPosition : globalYPosition;
+    const speakerName = showSpeakerName ? getSegmentSpeakerName(activeSegment, speakers) : null;
 
     return (
         <div
@@ -57,6 +74,22 @@ export const DynamicCaptions: React.FC<DynamicCaptionsProps> = ({ segments, font
                     boxShadow: '0 8px 32px rgba(0,0,0,0.2)',
                 }}
             >
+                {speakerName && (
+                    <span
+                        style={{
+                            marginRight: 16,
+                            fontSize: CAPTION_FONT_SIZE,
+                            fontFamily: fontFamily || 'system-ui, -apple-system, sans-serif',
+                            fontWeight: 600,
+                            color: 'white',
+                            textShadow: '0 2px 4px rgba(0,0,0,0.5)',
+                            opacity: 0.9,
+                            display: 'inline-block',
+                        }}
+                    >
+                        {speakerName}：
+                    </span>
+                )}
                 {activeSegment.words.map((word, index) => {
                     // Check if this word is strictly "active" based on its own timestamp?
                     // OR do we show the whole line and highlight the active word?
@@ -85,7 +118,7 @@ export const DynamicCaptions: React.FC<DynamicCaptionsProps> = ({ segments, font
                             key={`${activeSegment.id}-${index}`}
                             style={{
                                 marginRight,
-                                fontSize: 48,
+                                fontSize: CAPTION_FONT_SIZE,
                                 fontFamily: fontFamily || 'system-ui, -apple-system, sans-serif',
                                 fontWeight: word.color ? 800 : 600,
                                 color: color,

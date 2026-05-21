@@ -5,6 +5,7 @@ import { Download, FileText, Film, Loader2, CheckCircle, AlertTriangle, Clapperb
 import { useLanguage } from '@/contexts/LanguageContext';
 import { VideoExportState } from '@/hooks/useVideoExporter';
 import { OverlayExportState } from '@/hooks/useOverlayExporter';
+import type { SrtSpeakerExportMode } from '@/lib/exportUtils';
 
 interface ExportPanelProps {
     /** Total number of visible subtitle segments (for display) */
@@ -13,6 +14,16 @@ interface ExportPanelProps {
     hasCuts: boolean;
     /** Callback to export SRT */
     onExportSrt: () => void;
+    /** Whether current subtitle data has speaker metadata */
+    hasSpeakers?: boolean;
+    /** Whether SRT export should include speaker names */
+    exportSpeakerInfo: boolean;
+    /** Callback to toggle speaker info in SRT export */
+    onExportSpeakerInfoChange: (enabled: boolean) => void;
+    /** Speaker export layout */
+    speakerExportMode: SrtSpeakerExportMode;
+    /** Callback to change speaker export layout */
+    onSpeakerExportModeChange: (mode: SrtSpeakerExportMode) => void;
     /** Callback to export trimmed video */
     onExportVideo: () => void;
     /** Callback to export overlay video */
@@ -176,6 +187,11 @@ export default function ExportPanel({
     segmentCount,
     hasCuts,
     onExportSrt,
+    hasSpeakers = false,
+    exportSpeakerInfo,
+    onExportSpeakerInfoChange,
+    speakerExportMode,
+    onSpeakerExportModeChange,
     onExportVideo,
     onExportOverlay,
     videoExportsEnabled = true,
@@ -200,6 +216,7 @@ export default function ExportPanel({
 
     // Disable other exports while one is running
     const anyExporting = isVideoExporting || isOverlayExporting;
+    const speakerOptionsDisabled = !hasSpeakers || anyExporting;
 
     return (
         <div className="glass-panel" style={{ marginTop: 24, padding: 24 }}>
@@ -215,11 +232,11 @@ export default function ExportPanel({
                 {t('export.title')}
             </div>
 
-	            <div style={{
-	                display: 'grid',
-	                gridTemplateColumns: videoExportsEnabled ? '1fr 1fr 1fr' : '1fr',
-	                gap: 16,
-	            }}>
+            <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+                gap: 16,
+            }}>
                 {/* SRT Export Card */}
                 <ExportCard
                     onClick={onExportSrt}
@@ -237,58 +254,143 @@ export default function ExportPanel({
                     hoverBg="rgba(34, 197, 94, 0.06)"
                 />
 
-	                {videoExportsEnabled && (
-	                    <>
-	                        {/* Trimmed Video Export Card */}
-	                        <ExportCard
-	                            onClick={() => {
-	                                if (isVideoDone || isVideoError) {
-	                                    onResetExport();
-	                                } else if (!isVideoExporting) {
-	                                    onExportVideo();
-	                                }
-	                            }}
-	                            disabled={isOverlayExporting}
-	                            isExporting={isVideoExporting}
-	                            isDone={isVideoDone}
-	                            isError={isVideoError}
-	                            progress={videoExportState.progress}
-	                            stageLabel={videoStageLabel}
-	                            icon={<Film size={24} color="#6366f1" />}
-	                            iconColor="#6366f1"
-	                            title={t('export.videoTitle')}
-	                            description={hasCuts ? t('export.videoDescriptionWithCuts') : t('export.videoDescriptionNoCuts')}
-	                            errorText={videoExportState.error || undefined}
-	                            hoverColor="#6366f1"
-	                            hoverBg="rgba(99, 102, 241, 0.06)"
-	                        />
+                {/* Trimmed Video Export Card */}
+                <ExportCard
+                    onClick={() => {
+                        if (!videoExportsEnabled) return;
+                        if (isVideoDone || isVideoError) {
+                            onResetExport();
+                        } else if (!isVideoExporting) {
+                            onExportVideo();
+                        }
+                    }}
+                    disabled={!videoExportsEnabled || isOverlayExporting}
+                    isExporting={isVideoExporting}
+                    isDone={isVideoDone}
+                    isError={isVideoError}
+                    progress={videoExportState.progress}
+                    stageLabel={videoStageLabel}
+                    icon={<Film size={24} color="#6366f1" />}
+                    iconColor="#6366f1"
+                    title={t('export.videoTitle')}
+                    description={!videoExportsEnabled ? t('export.videoUnavailable') : (hasCuts ? t('export.videoDescriptionWithCuts') : t('export.videoDescriptionNoCuts'))}
+                    errorText={videoExportState.error || undefined}
+                    hoverColor="#6366f1"
+                    hoverBg="rgba(99, 102, 241, 0.06)"
+                />
 
-	                        {/* Overlay (Burned-in Subtitles) Export Card */}
-	                        <ExportCard
-	                            onClick={() => {
-	                                if (isOverlayDone || isOverlayError) {
-	                                    onResetOverlayExport();
-	                                } else if (!isOverlayExporting) {
-	                                    onExportOverlay();
-	                                }
-	                            }}
-	                            disabled={isVideoExporting}
-	                            isExporting={isOverlayExporting}
-	                            isDone={isOverlayDone}
-	                            isError={isOverlayError}
-	                            progress={overlayExportState.progress}
-	                            stageLabel={overlayStageLabel}
-	                            icon={<Clapperboard size={24} color="#f59e0b" />}
-	                            iconColor="#f59e0b"
-	                            title={t('export.overlayTitle')}
-	                            description={t('export.overlayDescription')}
-	                            errorText={overlayExportState.error || undefined}
-	                            hoverColor="#f59e0b"
-	                            hoverBg="rgba(245, 158, 11, 0.06)"
-	                        />
-	                    </>
-	                )}
-	            </div>
+                {/* Overlay (Burned-in Subtitles) Export Card */}
+                <ExportCard
+                    onClick={() => {
+                        if (!videoExportsEnabled) return;
+                        if (isOverlayDone || isOverlayError) {
+                            onResetOverlayExport();
+                        } else if (!isOverlayExporting) {
+                            onExportOverlay();
+                        }
+                    }}
+                    disabled={!videoExportsEnabled || isVideoExporting}
+                    isExporting={isOverlayExporting}
+                    isDone={isOverlayDone}
+                    isError={isOverlayError}
+                    progress={overlayExportState.progress}
+                    stageLabel={overlayStageLabel}
+                    icon={<Clapperboard size={24} color="#f59e0b" />}
+                    iconColor="#f59e0b"
+                    title={t('export.overlayTitle')}
+                    description={!videoExportsEnabled ? t('export.overlayUnavailable') : t('export.overlayDescription')}
+                    errorText={overlayExportState.error || undefined}
+                    hoverColor="#f59e0b"
+                    hoverBg="rgba(245, 158, 11, 0.06)"
+                />
+            </div>
+
+            <div style={{
+                marginTop: 16,
+                padding: 14,
+                border: '1px solid var(--border-subtle)',
+                borderRadius: 'var(--radius-md)',
+                background: 'rgba(255, 255, 255, 0.025)',
+            }}>
+                <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 16,
+                    flexWrap: 'wrap',
+                }}>
+                    <label style={{
+                        display: 'flex',
+                        alignItems: 'flex-start',
+                        gap: 10,
+                        color: hasSpeakers ? 'var(--text-primary)' : 'var(--text-secondary)',
+                        cursor: speakerOptionsDisabled ? 'not-allowed' : 'pointer',
+                        fontSize: '0.88rem',
+                        lineHeight: 1.45,
+                        minWidth: 260,
+                        flex: '1 1 360px',
+                    }}>
+                        <input
+                            type="checkbox"
+                            checked={hasSpeakers && exportSpeakerInfo}
+                            disabled={speakerOptionsDisabled}
+                            onChange={(event) => onExportSpeakerInfoChange(event.target.checked)}
+                            style={{ marginTop: 3, accentColor: 'var(--accent-primary)' }}
+                        />
+                        <span>
+                            <span style={{ display: 'block', fontWeight: 600 }}>
+                                {t('export.includeSpeakers')}
+                            </span>
+                            <span style={{ display: 'block', color: 'var(--text-secondary)', fontSize: '0.78rem', marginTop: 4 }}>
+                                {hasSpeakers ? t('export.includeSpeakersHelp') : t('export.includeSpeakersUnavailable')}
+                            </span>
+                        </span>
+                    </label>
+
+                    <div style={{ flex: '0 1 360px', minWidth: 260 }}>
+                        <label style={{
+                            display: 'block',
+                            fontSize: '0.76rem',
+                            color: 'var(--text-secondary)',
+                            marginBottom: 6,
+                        }}>
+                            {t('export.speakerExportModeLabel')}
+                        </label>
+                        <select
+                            value={speakerExportMode}
+                            disabled={!exportSpeakerInfo || speakerOptionsDisabled}
+                            onChange={(event) => onSpeakerExportModeChange(event.target.value as SrtSpeakerExportMode)}
+                            style={{
+                                width: '100%',
+                                height: 38,
+                                border: '1px solid var(--border-subtle)',
+                                borderRadius: 8,
+                                background: 'rgba(255, 255, 255, 0.04)',
+                                color: 'var(--text-primary)',
+                                padding: '0 12px',
+                                cursor: !exportSpeakerInfo || speakerOptionsDisabled ? 'not-allowed' : 'pointer',
+                                opacity: exportSpeakerInfo && hasSpeakers ? 1 : 0.45,
+                            }}
+                        >
+                            <option value="inline">{t('export.speakerModeInline')}</option>
+                            <option value="separate">{t('export.speakerModeSeparate')}</option>
+                            <option value="per-speaker">{t('export.speakerModePerSpeaker')}</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div style={{
+                    marginTop: 10,
+                    paddingLeft: 28,
+                    color: 'var(--text-secondary)',
+                    fontSize: '0.76rem',
+                    lineHeight: 1.45,
+                }}>
+                    {speakerExportMode === 'inline' && t('export.speakerModeInlineHelp')}
+                    {speakerExportMode === 'separate' && t('export.speakerModeSeparateHelp')}
+                    {speakerExportMode === 'per-speaker' && t('export.speakerModePerSpeakerHelp')}
+                </div>
+            </div>
         </div>
     );
 }

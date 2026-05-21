@@ -101,7 +101,10 @@
     "title": "Subtitle Style",
     "verticalPosition": "Vertical Position",
     "top": "Top (0%)",
-    "bottom": "Bottom (100%)"
+    "bottom": "Bottom (100%)",
+    "speakerDisplayTitle": "Speaker Display",
+    "includeSpeakerName": "Add speaker name before each line",
+    "includeSpeakerNameHelp": "Preview shows a separate speaker label; export format is configured in the export section."
   },
   "fontSelector": {
     "title": "Font Family"
@@ -150,13 +153,25 @@
     "title": "Export",
     "srtTitle": "Export SRT Subtitles",
     "srtDescription": "{count} subtitle segments",
+    "includeSpeakers": "Export speaker information",
+    "includeSpeakersHelp": "When enabled, choose how speaker information is exported.",
+    "includeSpeakersUnavailable": "No speaker information is available for the current subtitles.",
+    "speakerExportModeLabel": "Export mode",
+    "speakerModeInline": "Single SRT",
+    "speakerModeInlineHelp": "Format: Speaker: line",
+    "speakerModeSeparate": "Two SRT tracks",
+    "speakerModeSeparateHelp": "Download subtitle text and speaker labels separately",
+    "speakerModePerSpeaker": "One SRT per speaker",
+    "speakerModePerSpeakerHelp": "Download each speaker's own subtitle file separately",
     "videoTitle": "Export Trimmed Video",
     "videoDescriptionWithCuts": "Export MP4 with cuts applied",
     "videoDescriptionNoCuts": "Export original video (no cuts)",
+    "videoUnavailable": "Only available for video files",
     "videoDone": "Video Export Complete",
     "videoError": "Export Failed",
     "clickToReset": "Click to reset",
     "overlayTitle": "Export with Subtitles",
-    "overlayDescription": "Burn subtitles into video and export MP4"
+    "overlayDescription": "Burn subtitles into video and export MP4",
+    "overlayUnavailable": "Only available for video files"
   }
 }

@@ -104,7 +104,10 @@
     "title": "字幕样式",
     "verticalPosition": "垂直位置",
     "top": "顶部 (0%)",
-    "bottom": "底部 (100%)"
+    "bottom": "底部 (100%)",
+    "speakerDisplayTitle": "说话人显示",
+    "includeSpeakerName": "在台词前添加说话人名字",
+    "includeSpeakerNameHelp": "预览中作为独立说话人标签显示；导出格式请在导出区单独设置。"
   },
   "errors": {
     "fileTooLarge": "文件不符合要求",
@@ -150,13 +153,25 @@
     "title": "导出",
     "srtTitle": "导出 SRT 字幕",
     "srtDescription": "{count} 个字幕片段",
+    "includeSpeakers": "导出说话人信息",
+    "includeSpeakersHelp": "开启后可选择说话人信息的导出方式。",
+    "includeSpeakersUnavailable": "当前字幕没有说话人信息。",
+    "speakerExportModeLabel": "导出方式",
+    "speakerModeInline": "合并为一个 SRT",
+    "speakerModeInlineHelp": "格式：说话人：对白",
+    "speakerModeSeparate": "分轨导出两个 SRT",
+    "speakerModeSeparateHelp": "字幕文本和说话人信息分别下载",
+    "speakerModePerSpeaker": "每个说话人单独 SRT",
+    "speakerModePerSpeakerHelp": "按说话人分别下载各自的字幕文件",
     "videoTitle": "导出剪切视频",
     "videoDescriptionWithCuts": "导出应用剪切后的 MP4 视频",
     "videoDescriptionNoCuts": "导出原始视频（无剪切）",
+    "videoUnavailable": "仅视频文件可用",
     "videoDone": "视频导出完成",
     "videoError": "导出失败",
     "clickToReset": "点击重置",
     "overlayTitle": "导出带字幕视频",
-    "overlayDescription": "将字幕烧录到视频中导出 MP4"
+    "overlayDescription": "将字幕烧录到视频中导出 MP4",
+    "overlayUnavailable": "仅视频文件可用"
   }
 }

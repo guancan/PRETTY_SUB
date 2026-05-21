@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
-import { SubtitleSegment, SegmentWord } from '@/lib/segmentation';
+import { Speaker, SubtitleSegment, SegmentWord } from '@/lib/segmentation';
 import { Trash2, Check, Scissors, MicOff, X, LocateFixed, Users, Pencil, Plus, GripVertical } from 'lucide-react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { isCjkText, isPunctuationText, joinTranscriptTokens } from '@/lib/transcriptText';
@@ -7,6 +7,8 @@ import { isCjkText, isPunctuationText, joinTranscriptTokens } from '@/lib/transc
 interface EditorProps {
     segments: SubtitleSegment[];
     onSegmentsChange: (newSegments: SubtitleSegment[]) => void;
+    speakers: Speaker[];
+    onSpeakersChange: (newSpeakers: Speaker[]) => void;
     onSeek?: (time: number) => void;
 }
 
@@ -47,15 +49,11 @@ interface EditingTarget {
 interface SpeakerSummary {
     id: string;
     name: string;
+    source: Speaker['source'];
     segmentCount: number;
     firstSegmentId?: string;
     firstStart?: number;
     colorIndex: number;
-}
-
-interface ManualSpeaker {
-    id: string;
-    name: string;
 }
 
 const PRESET_COLORS = [
@@ -127,7 +125,7 @@ const splitEditedTextIntoTimingUnits = (text: string): string[] => {
     return units;
 };
 
-export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: EditorProps) {
+export default function SubtitleEditor({ segments, onSegmentsChange, speakers, onSpeakersChange, onSeek }: EditorProps) {
     const { t } = useLanguage();
 
     // We compute items from segments, but we don't duplicate state.
@@ -141,18 +139,23 @@ export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: E
     const [tokenOverride, setTokenOverride] = useState<{ itemId: string; wordIndex: number } | null>(null);
     const [editingTarget, setEditingTarget] = useState<EditingTarget | null>(null);
     const [editingSpeaker, setEditingSpeaker] = useState<{ id: string; name: string } | null>(null);
-    const [manualSpeakers, setManualSpeakers] = useState<ManualSpeaker[]>([]);
     const [mergingSpeaker, setMergingSpeaker] = useState<{ fromId: string; toId: string } | null>(null);
     const editInputRef = useRef<HTMLInputElement | null>(null);
     const speakerInputRef = useRef<HTMLInputElement | null>(null);
     const dragStartIdRef = useRef<string | null>(null);
 
+    const speakerById = useMemo(() => (
+        new Map(speakers.map((speaker) => [speaker.id, speaker]))
+    ), [speakers]);
+
     const getSpeakerDisplayName = useCallback((speakerId?: string, speakerName?: string): string | null => {
+        const speakerTableName = speakerId ? speakerById.get(speakerId)?.name?.trim() : null;
+        if (speakerTableName) return speakerTableName;
         const trimmedName = speakerName?.trim();
         if (trimmedName) return trimmedName;
         if (!speakerId) return null;
         return t('editor.speakerLabel', { id: speakerId });
-    }, [t]);
+    }, [speakerById, t]);
 
     // Calculate display items (Memoized purely for display)
 
@@ -377,10 +380,11 @@ export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: E
         const summaries: SpeakerSummary[] = [];
         const summaryById = new Map<string, SpeakerSummary>();
 
-        manualSpeakers.forEach((speaker) => {
+        speakers.forEach((speaker) => {
             const summary: SpeakerSummary = {
                 id: speaker.id,
                 name: speaker.name,
+                source: speaker.source,
                 segmentCount: 0,
                 colorIndex: summaries.length % SPEAKER_TAG_COLORS.length,
             };
@@ -396,6 +400,7 @@ export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: E
                 summary = {
                     id: segment.speakerId,
                     name: getSpeakerDisplayName(segment.speakerId, segment.speakerName) ?? segment.speakerId,
+                    source: 'provider',
                     segmentCount: 0,
                     firstSegmentId: segment.id,
                     firstStart: segment.start,
@@ -417,7 +422,7 @@ export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: E
         });
 
         return summaries;
-    }, [manualSpeakers, segments, getSpeakerDisplayName]);
+    }, [speakers, segments, getSpeakerDisplayName]);
 
     const speakerColorById = useMemo(() => (
         new Map(speakerSummaries.map((speaker) => [speaker.id, speaker.colorIndex]))
@@ -730,11 +735,12 @@ export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: E
                 };
 
                 const newSeg2: SubtitleSegment = {
+                    ...segment,
                     id: crypto.randomUUID(),
                     start: words2[0].start,
                     end: words2[words2.length - 1].end,
                     text: joinTranscriptTokens(words2),
-                    words: words2
+                    words: words2,
                 };
 
                 const newSegments = [...segments];
@@ -1098,16 +1104,21 @@ export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: E
         if (!editingSpeaker) return;
 
         const nextName = editingSpeaker.name.trim();
-        setManualSpeakers((speakers) => (
-            speakers.map((speaker) => (
-                speaker.id === editingSpeaker.id
-                    ? { ...speaker, name: nextName || getSpeakerDisplayName(editingSpeaker.id) || editingSpeaker.id }
-                    : speaker
-            ))
-        ));
+        const fallbackName = getSpeakerDisplayName(editingSpeaker.id) || editingSpeaker.id;
+        const resolvedName = nextName || fallbackName;
+        const hasExistingSpeaker = speakers.some((speaker) => speaker.id === editingSpeaker.id);
+        onSpeakersChange(
+            hasExistingSpeaker
+                ? speakers.map((speaker) => (
+                    speaker.id === editingSpeaker.id
+                        ? { ...speaker, name: resolvedName }
+                        : speaker
+                ))
+                : [...speakers, { id: editingSpeaker.id, name: resolvedName, source: 'provider' }]
+        );
         const newSegments = segments.map((segment) => (
             segment.speakerId === editingSpeaker.id
-                ? { ...segment, speakerName: nextName || undefined }
+                ? { ...segment, speakerName: resolvedName }
                 : segment
         ));
 
@@ -1122,7 +1133,7 @@ export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: E
     const createSpeaker = () => {
         const id = `manual-${crypto.randomUUID()}`;
         const name = t('editor.newSpeakerName', { count: speakerSummaries.length + 1 });
-        setManualSpeakers((speakers) => [...speakers, { id, name }]);
+        onSpeakersChange([...speakers, { id, name, source: 'manual' }]);
         setEditingSpeaker({ id, name });
         setMergingSpeaker(null);
         setSegmentMenuId(null);
@@ -1144,7 +1155,7 @@ export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: E
 
     const beginMergeSpeaker = (speaker: SpeakerSummary) => {
         if (speaker.segmentCount === 0) {
-            setManualSpeakers((speakers) => speakers.filter((candidate) => candidate.id !== speaker.id));
+            onSpeakersChange(speakers.filter((candidate) => candidate.id !== speaker.id));
             return;
         }
 
@@ -1169,7 +1180,7 @@ export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: E
                 : segment
         ));
 
-        setManualSpeakers((speakers) => speakers.filter((speaker) => speaker.id !== mergingSpeaker.fromId));
+        onSpeakersChange(speakers.filter((speaker) => speaker.id !== mergingSpeaker.fromId));
         onSegmentsChange(newSegments);
         setMergingSpeaker(null);
     };

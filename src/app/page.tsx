@@ -6,7 +6,7 @@ import { useAudioExtractor } from '@/hooks/useAudioExtractor';
 import { useHistory } from '@/hooks/useHistory';
 import { aiSegmentWords } from '@/actions/aiSegment';
 import { transcribeAudio, TranscriptionResponse } from '@/actions/transcribe';
-import { buildSegmentsFromProviderUtterances, buildSegmentsFromRanges, DEFAULT_SEGMENTATION_OPTIONS, normalizeSegmentationOptions, SegmentationOptions, segmentWords, SubtitleSegment } from '@/lib/segmentation';
+import { buildSegmentsFromProviderUtterances, buildSegmentsFromRanges, DEFAULT_SEGMENTATION_OPTIONS, normalizeSegmentationOptions, SegmentationOptions, segmentWords, Speaker, SubtitleSegment } from '@/lib/segmentation';
 import SubtitleEditor from '@/components/SubtitleEditor';
 import FontSelector from '@/components/FontSelector';
 import SegmentationRulesModal from '@/components/SegmentationRulesModal';
@@ -26,7 +26,7 @@ import LanguageSwitcher from '@/components/LanguageSwitcher';
 import ExportPanel from '@/components/ExportPanel';
 import { useVideoExporter } from '@/hooks/useVideoExporter';
 import { useOverlayExporter } from '@/hooks/useOverlayExporter';
-import { exportSrt } from '@/lib/exportUtils';
+import { exportSrt, type SrtSpeakerExportMode } from '@/lib/exportUtils';
 
 const SEGMENTATION_RULES_STORAGE_KEY = 'pretty_sub.segmentation_rules.v1';
 const DEFAULT_EDITOR_PANEL_RATIO = 75;
@@ -44,6 +44,7 @@ export default function Home() {
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
   const [status, setStatus] = useState<string>('');
   const [transcription, setTranscription] = useState<TranscriptionResponse | null>(null);
+  const [speakers, setSpeakers] = useState<Speaker[]>([]);
   const [segmentationOptions, setSegmentationOptions] = useState<SegmentationOptions>(DEFAULT_SEGMENTATION_OPTIONS);
   const [isRulesOpen, setIsRulesOpen] = useState(false);
   const [toast, setToast] = useState<{ message: string; tone: 'info' | 'success' } | null>(null);
@@ -75,6 +76,9 @@ export default function Home() {
   const [showRaw, setShowRaw] = useState(false);
   const [editorPanelRatio, setEditorPanelRatio] = useState(DEFAULT_EDITOR_PANEL_RATIO);
   const [isSplitResizing, setIsSplitResizing] = useState(false);
+  const [includeSpeakerNameInSubtitles, setIncludeSpeakerNameInSubtitles] = useState(false);
+  const [exportSpeakerInfo, setExportSpeakerInfo] = useState(false);
+  const [speakerSrtExportMode, setSpeakerSrtExportMode] = useState<SrtSpeakerExportMode>('inline');
 
   const playerRef = useRef<PlayerRef>(null);
   const splitViewRef = useRef<HTMLDivElement | null>(null);
@@ -183,6 +187,29 @@ export default function Home() {
     };
   }, [isSplitResizing, updateEditorPanelRatio]);
 
+  const deriveSpeakersFromSegments = useCallback((nextSegments: SubtitleSegment[], existingSpeakers: Speaker[] = []): Speaker[] => {
+    const nextSpeakers = new Map(existingSpeakers.map((speaker) => [speaker.id, speaker]));
+
+    nextSegments.forEach((segment) => {
+      if (!segment.speakerId || nextSpeakers.has(segment.speakerId)) return;
+
+      nextSpeakers.set(segment.speakerId, {
+        id: segment.speakerId,
+        name: segment.speakerName?.trim() || t('editor.speakerLabel', { id: segment.speakerId }),
+        source: 'provider',
+      });
+    });
+
+    return Array.from(nextSpeakers.values());
+  }, [t]);
+
+  const applyGeneratedSegments = useCallback((nextSegments: SubtitleSegment[], options: { preserveSpeakers?: boolean } = {}) => {
+    setSegments(nextSegments);
+    setSpeakers((currentSpeakers) => (
+      deriveSpeakersFromSegments(nextSegments, options.preserveSpeakers ? currentSpeakers : [])
+    ));
+  }, [deriveSpeakersFromSegments, setSegments]);
+
   useEffect(() => {
     try {
       window.localStorage.setItem(
@@ -218,6 +245,7 @@ export default function Home() {
     setAudioBlob(null);
     setTranscription(null);
     setSegments([]);
+    setSpeakers([]);
     setFileSuggestion({ show: false, type: 'success', message: '' });
 
     try {
@@ -323,6 +351,7 @@ export default function Home() {
     setAudioBlob(null);
     setTranscription(null);
     setSegments([]);
+    setSpeakers([]);
     setStatus('');
     Logger.info('Video file and related data cleared');
   }, [setSegments]);
@@ -393,6 +422,7 @@ export default function Home() {
     if (!audioBlob) return;
     setIsTranscribing(true);
     setSegments([]); // Clear segments to prevent showing editor during processing
+    setSpeakers([]);
     setProcessingStage('transcribing');
     setStatus(t('status.transcribing'));
 
@@ -412,7 +442,7 @@ export default function Home() {
         setProcessingStage('segmenting');
         setStatus(t('status.generatingSegments'));
         const segs = await generateSegments(result, { useAi: result.provider !== 'doubao-flash' });
-        setSegments(segs);
+        applyGeneratedSegments(segs);
         setStatus(t('status.transcriptionComplete'));
         Logger.info('Transcription result', result);
       }
@@ -433,7 +463,7 @@ export default function Home() {
     setStatus(t('status.regeneratingSegments'));
     try {
       const segs = await generateSegments(transcription, { useAi: transcription.provider !== 'doubao-flash' });
-      setSegments(segs);
+      applyGeneratedSegments(segs, { preserveSpeakers: true });
       setStatus(t('status.segmentationUpdated'));
       setSegmentationStatus('idle');
     } finally {
@@ -449,7 +479,12 @@ export default function Home() {
   const handleExportSrt = () => {
     if (!videoMetadata || segments.length === 0) return;
     const baseName = videoFile?.name?.replace(/\.[^.]+$/, '') || 'subtitles';
-    exportSrt(segments, getEffectiveDuration(), `${baseName}.srt`);
+    const shouldExportSpeakers = exportSpeakerInfo && speakers.length > 0;
+    exportSrt(segments, getEffectiveDuration(), `${baseName}.srt`, {
+      includeSpeakerName: shouldExportSpeakers,
+      speakers,
+      speakerExportMode: speakerSrtExportMode,
+    });
   };
 
   const handleExportVideo = async () => {
@@ -780,6 +815,8 @@ export default function Home() {
                       <SubtitleEditor
                         segments={segments}
                         onSegmentsChange={setSegments}
+                        speakers={speakers}
+                        onSpeakersChange={setSpeakers}
                         onSeek={handleSeek}
                       />
                     </div>
@@ -844,9 +881,11 @@ export default function Home() {
 	                          mediaKind: videoMetadata?.kind,
 	                          mediaCanPreview: videoMetadata?.canPreview,
 	                          segments: segments,
+                            speakers: speakers,
 	                          fontFamily: selectedFont,
 	                          videoDurationSeconds: getEffectiveDuration(),
-	                          globalYPosition: globalYPosition
+	                          globalYPosition: globalYPosition,
+                            showSpeakerName: includeSpeakerNameInSubtitles,
 	                        }}
                         // Calculate *visual* duration based on cuts
                         durationInFrames={(() => {
@@ -905,6 +944,40 @@ export default function Home() {
                         />
                       </div>
                     </div>
+
+                    <div style={{ width: 1, background: 'var(--border-subtle)', alignSelf: 'stretch' }} />
+
+                    {/* Speaker Settings */}
+                    <div style={{ flex: 1 }}>
+                      <div style={{ marginBottom: 16, fontSize: '1rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <Type size={18} /> {t('style.speakerDisplayTitle')}
+                      </div>
+                      <label style={{
+                        display: 'flex',
+                        gap: 10,
+                        alignItems: 'flex-start',
+                        color: speakers.length > 0 ? 'var(--text-primary)' : 'var(--text-secondary)',
+                        cursor: speakers.length > 0 ? 'pointer' : 'not-allowed',
+                        fontSize: '0.88rem',
+                        lineHeight: 1.45,
+                      }}>
+                        <input
+                          type="checkbox"
+                          checked={includeSpeakerNameInSubtitles}
+                          disabled={speakers.length === 0}
+                          onChange={(event) => setIncludeSpeakerNameInSubtitles(event.target.checked)}
+                          style={{ marginTop: 3, accentColor: 'var(--accent-primary)' }}
+                        />
+                        <span>
+                          <span style={{ display: 'block', fontWeight: 600 }}>
+                            {t('style.includeSpeakerName')}
+                          </span>
+                          <span style={{ display: 'block', color: 'var(--text-secondary)', fontSize: '0.78rem', marginTop: 4 }}>
+                            {t('style.includeSpeakerNameHelp')}
+                          </span>
+                        </span>
+                      </label>
+                    </div>
                   </div>
                 </div>
 
@@ -912,11 +985,16 @@ export default function Home() {
               <ExportPanel
                 segmentCount={segments.filter(seg => seg.words.some(w => !w.isDeleted && !w.isCut)).length}
                 hasCuts={hasCuts}
-	                onExportSrt={handleExportSrt}
-	                onExportVideo={handleExportVideo}
-	                onExportOverlay={handleExportOverlay}
-	                videoExportsEnabled={videoMetadata?.kind === 'video'}
-	                videoExportState={videoExportState}
+                onExportSrt={handleExportSrt}
+                hasSpeakers={speakers.length > 0}
+                exportSpeakerInfo={exportSpeakerInfo}
+                onExportSpeakerInfoChange={setExportSpeakerInfo}
+                speakerExportMode={speakerSrtExportMode}
+                onSpeakerExportModeChange={setSpeakerSrtExportMode}
+                onExportVideo={handleExportVideo}
+                onExportOverlay={handleExportOverlay}
+                videoExportsEnabled={videoMetadata?.kind === 'video'}
+                videoExportState={videoExportState}
                 overlayExportState={overlayExportState}
                 onResetExport={resetExport}
                 onResetOverlayExport={resetOverlayExport}
