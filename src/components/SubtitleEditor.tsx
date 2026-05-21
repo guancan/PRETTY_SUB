@@ -1,6 +1,6 @@
-import React, { useState, useMemo, useRef, useEffect } from 'react';
+import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { SubtitleSegment, SegmentWord } from '@/lib/segmentation';
-import { Trash2, Check, Scissors, MicOff, Palette, X, ArrowUpDown } from 'lucide-react';
+import { Trash2, Check, Scissors, MicOff, Palette, X, ArrowUpDown, LocateFixed, Users, Pencil } from 'lucide-react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { isCjkText, isPunctuationText, joinTranscriptTokens } from '@/lib/transcriptText';
 
@@ -42,6 +42,15 @@ interface EditingTarget {
     segmentId: string;
     indices: number[];
     text: string;
+}
+
+interface SpeakerSummary {
+    id: string;
+    name: string;
+    segmentCount: number;
+    firstSegmentId: string;
+    firstStart: number;
+    colorIndex: number;
 }
 
 const PRESET_COLORS = [
@@ -114,8 +123,17 @@ export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: E
     const [isDraggingSelection, setIsDraggingSelection] = useState(false);
     const [tokenOverride, setTokenOverride] = useState<{ itemId: string; wordIndex: number } | null>(null);
     const [editingTarget, setEditingTarget] = useState<EditingTarget | null>(null);
+    const [editingSpeaker, setEditingSpeaker] = useState<{ id: string; name: string } | null>(null);
     const editInputRef = useRef<HTMLInputElement | null>(null);
+    const speakerInputRef = useRef<HTMLInputElement | null>(null);
     const dragStartIdRef = useRef<string | null>(null);
+
+    const getSpeakerDisplayName = useCallback((speakerId?: string, speakerName?: string): string | null => {
+        const trimmedName = speakerName?.trim();
+        if (trimmedName) return trimmedName;
+        if (!speakerId) return null;
+        return t('editor.speakerLabel', { id: speakerId });
+    }, [t]);
 
     // Calculate display items (Memoized purely for display)
 
@@ -336,16 +354,40 @@ export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: E
         return newItems;
     }, [segments]);
 
-    const speakerColorById = useMemo(() => {
-        const speakerIds = new Map<string, number>();
+    const speakerSummaries = useMemo<SpeakerSummary[]>(() => {
+        const summaries: SpeakerSummary[] = [];
+        const summaryById = new Map<string, SpeakerSummary>();
 
         segments.forEach((segment) => {
-            if (!segment.speakerId || speakerIds.has(segment.speakerId)) return;
-            speakerIds.set(segment.speakerId, speakerIds.size % SPEAKER_TAG_COLORS.length);
+            if (!segment.speakerId) return;
+
+            let summary = summaryById.get(segment.speakerId);
+            if (!summary) {
+                summary = {
+                    id: segment.speakerId,
+                    name: getSpeakerDisplayName(segment.speakerId, segment.speakerName) ?? segment.speakerId,
+                    segmentCount: 0,
+                    firstSegmentId: segment.id,
+                    firstStart: segment.start,
+                    colorIndex: summaries.length % SPEAKER_TAG_COLORS.length,
+                };
+                summaryById.set(segment.speakerId, summary);
+                summaries.push(summary);
+            }
+
+            summary.segmentCount += 1;
+            const displayName = getSpeakerDisplayName(segment.speakerId, segment.speakerName);
+            if (displayName) {
+                summary.name = displayName;
+            }
         });
 
-        return speakerIds;
-    }, [segments]);
+        return summaries;
+    }, [segments, getSpeakerDisplayName]);
+
+    const speakerColorById = useMemo(() => (
+        new Map(speakerSummaries.map((speaker) => [speaker.id, speaker.colorIndex]))
+    ), [speakerSummaries]);
 
     const getTargetWordIndices = (item: UIItem): number[] => {
         const isSingleItemSelection = selection.startId === item.id && selection.endId === item.id;
@@ -607,6 +649,12 @@ export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: E
         editInputRef.current?.focus();
         editInputRef.current?.select();
     }, [editingTarget]);
+
+    useEffect(() => {
+        if (!editingSpeaker) return;
+        speakerInputRef.current?.focus();
+        speakerInputRef.current?.select();
+    }, [editingSpeaker]);
 
     // Keyboard Navigation & Actions
     useEffect(() => {
@@ -938,6 +986,46 @@ export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: E
         setMenuPosition(null);
     };
 
+    const focusSpeaker = (speaker: SpeakerSummary) => {
+        onSeek?.(speaker.firstStart);
+        setMenuPosition(null);
+        setExpandedLayoutId(null);
+
+        const firstItem = items.find((item) => item.segmentId === speaker.firstSegmentId && item.type === 'word');
+        if (firstItem) {
+            setSelection({ startId: firstItem.id, endId: firstItem.id });
+        }
+
+        window.requestAnimationFrame(() => {
+            document
+                .querySelector(`[data-segment-id="${speaker.firstSegmentId}"]`)
+                ?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        });
+    };
+
+    const beginRenameSpeaker = (speaker: SpeakerSummary) => {
+        setEditingSpeaker({ id: speaker.id, name: speaker.name });
+        setMenuPosition(null);
+    };
+
+    const commitSpeakerRename = () => {
+        if (!editingSpeaker) return;
+
+        const nextName = editingSpeaker.name.trim();
+        const newSegments = segments.map((segment) => (
+            segment.speakerId === editingSpeaker.id
+                ? { ...segment, speakerName: nextName || undefined }
+                : segment
+        ));
+
+        onSegmentsChange(newSegments);
+        setEditingSpeaker(null);
+    };
+
+    const cancelSpeakerRename = () => {
+        setEditingSpeaker(null);
+    };
+
     // Group items by segment for render
     const itemsBySegment = useMemo(() => {
         const map = new Map<string, UIItem[]>();
@@ -1042,20 +1130,227 @@ export default function SubtitleEditor({ segments, onSegmentsChange, onSeek }: E
                 </div>
             )}
 
+            {speakerSummaries.length > 0 && (
+                <div
+                    className="glass-panel"
+                    style={{
+                        marginBottom: 14,
+                        padding: '10px 12px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 10,
+                        flexWrap: 'wrap',
+                        background: 'rgba(255,255,255,0.035)',
+                        border: '1px solid rgba(255,255,255,0.08)',
+                        borderRadius: 8,
+                    }}
+                >
+                    <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        color: 'var(--text-secondary)',
+                        fontSize: '0.78rem',
+                        marginRight: 2,
+                    }}>
+                        <Users size={14} />
+                        <span>{t('editor.speakers')}</span>
+                        <span style={{ opacity: 0.7 }}>{t('editor.speakerCount', { count: speakerSummaries.length })}</span>
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                        {speakerSummaries.map((speaker) => {
+                            const tone = SPEAKER_TAG_COLORS[speaker.colorIndex];
+                            const isRenamingSpeaker = editingSpeaker?.id === speaker.id;
+                            return (
+                                <div
+                                    key={speaker.id}
+                                    title={t('editor.speakerSeekTitle', { name: speaker.name })}
+                                    style={{
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: 4,
+                                        maxWidth: isRenamingSpeaker ? 270 : 240,
+                                        minHeight: 28,
+                                        border: `1px solid ${tone.border}`,
+                                        borderRadius: 6,
+                                        padding: '3px 5px',
+                                        background: tone.background,
+                                        color: tone.text,
+                                        fontSize: '0.76rem',
+                                        lineHeight: 1.25,
+                                    }}
+                                >
+                                    {isRenamingSpeaker ? (
+                                        <>
+                                            <span style={{
+                                                width: 7,
+                                                height: 7,
+                                                borderRadius: '50%',
+                                                background: tone.text,
+                                                flex: '0 0 auto',
+                                                marginLeft: 3,
+                                            }} />
+                                            <input
+                                                ref={speakerInputRef}
+                                                value={editingSpeaker.name}
+                                                onChange={(event) => setEditingSpeaker({ id: speaker.id, name: event.target.value })}
+                                                onKeyDown={(event) => {
+                                                    if (event.key === 'Enter') {
+                                                        event.preventDefault();
+                                                        commitSpeakerRename();
+                                                    }
+                                                    if (event.key === 'Escape') {
+                                                        event.preventDefault();
+                                                        cancelSpeakerRename();
+                                                    }
+                                                }}
+                                                aria-label={t('editor.speakerNamePlaceholder')}
+                                                style={{
+                                                    width: `${Math.max(5, editingSpeaker.name.length)}em`,
+                                                    minWidth: 64,
+                                                    maxWidth: 140,
+                                                    border: `1px solid ${tone.border}`,
+                                                    borderRadius: 4,
+                                                    background: 'rgba(0,0,0,0.18)',
+                                                    color: 'inherit',
+                                                    font: 'inherit',
+                                                    padding: '2px 4px',
+                                                    outline: 'none',
+                                                }}
+                                            />
+                                            <span style={{
+                                                color: 'var(--text-secondary)',
+                                                opacity: 0.78,
+                                                whiteSpace: 'nowrap',
+                                            }}>
+                                                {t('editor.speakerSegmentCount', { count: speaker.segmentCount })}
+                                            </span>
+                                        </>
+                                    ) : (
+                                        <button
+                                            onClick={() => focusSpeaker(speaker)}
+                                            title={t('editor.speakerSeekTitle', { name: speaker.name })}
+                                            style={{
+                                                display: 'inline-flex',
+                                                alignItems: 'center',
+                                                gap: 6,
+                                                minHeight: 22,
+                                                minWidth: 0,
+                                                border: 'none',
+                                                background: 'transparent',
+                                                color: 'inherit',
+                                                cursor: 'pointer',
+                                                padding: '1px 3px',
+                                            }}
+                                        >
+                                            <span style={{
+                                                width: 7,
+                                                height: 7,
+                                                borderRadius: '50%',
+                                                background: tone.text,
+                                                flex: '0 0 auto',
+                                            }} />
+                                            <span style={{
+                                                overflow: 'hidden',
+                                                textOverflow: 'ellipsis',
+                                                whiteSpace: 'nowrap',
+                                            }}>
+                                                {speaker.name}
+                                            </span>
+                                            <span style={{
+                                                color: 'var(--text-secondary)',
+                                                opacity: 0.78,
+                                                whiteSpace: 'nowrap',
+                                            }}>
+                                                {t('editor.speakerSegmentCount', { count: speaker.segmentCount })}
+                                            </span>
+                                            <LocateFixed size={12} style={{ flex: '0 0 auto', opacity: 0.8 }} />
+                                        </button>
+                                    )}
+                                    {isRenamingSpeaker ? (
+                                        <>
+                                            <button
+                                                onClick={commitSpeakerRename}
+                                                title={t('editor.speakerRenameSave')}
+                                                style={{
+                                                    display: 'inline-flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center',
+                                                    width: 22,
+                                                    height: 22,
+                                                    border: 'none',
+                                                    borderRadius: 4,
+                                                    background: 'rgba(255,255,255,0.10)',
+                                                    color: 'inherit',
+                                                    cursor: 'pointer',
+                                                    padding: 0,
+                                                }}
+                                            >
+                                                <Check size={13} />
+                                            </button>
+                                            <button
+                                                onClick={cancelSpeakerRename}
+                                                title={t('editor.speakerRenameCancel')}
+                                                style={{
+                                                    display: 'inline-flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center',
+                                                    width: 22,
+                                                    height: 22,
+                                                    border: 'none',
+                                                    borderRadius: 4,
+                                                    background: 'transparent',
+                                                    color: 'var(--text-secondary)',
+                                                    cursor: 'pointer',
+                                                    padding: 0,
+                                                }}
+                                            >
+                                                <X size={13} />
+                                            </button>
+                                        </>
+                                    ) : (
+                                        <button
+                                            onClick={() => beginRenameSpeaker(speaker)}
+                                            title={t('editor.speakerRenameTitle', { name: speaker.name })}
+                                            style={{
+                                                display: 'inline-flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                width: 22,
+                                                height: 22,
+                                                border: 'none',
+                                                borderRadius: 4,
+                                                background: 'transparent',
+                                                color: 'inherit',
+                                                cursor: 'pointer',
+                                                padding: 0,
+                                                opacity: 0.8,
+                                            }}
+                                        >
+                                            <Pencil size={12} />
+                                        </button>
+                                    )}
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+            )}
+
             {/* Render Lines */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                 {itemsBySegment.map(([segId, segmentItems]) => {
                     if (segmentItems.length === 0) return null;
                     const currentSegment = segments.find(s => s.id === segId);
-                    const speakerName = currentSegment?.speakerName ?? currentSegment?.speakerId;
-                    const speakerLabel = speakerName ? t('editor.speakerLabel', { id: speakerName }) : null;
+                    const speakerLabel = getSpeakerDisplayName(currentSegment?.speakerId, currentSegment?.speakerName);
                     const speakerTone = currentSegment?.speakerId
                         ? SPEAKER_TAG_COLORS[speakerColorById.get(currentSegment.speakerId) ?? 0]
                         : null;
                     const startTime = segmentItems[0].start.toFixed(2);
 
                     return (
-                        <div key={segId} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        <div key={segId} data-segment-id={segId} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                             <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
                                 <div style={{
                                     minWidth: 76,

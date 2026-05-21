@@ -69,7 +69,15 @@
     "default": "Default",
     "reset": "Reset",
     "selected": "{count} selected",
-    "speakerLabel": "Speaker {id}"
+    "speakerLabel": "Speaker {id}",
+    "speakers": "Speakers",
+    "speakerCount": "{count}",
+    "speakerSegmentCount": "{count} lines",
+    "speakerSeekTitle": "Jump to the first line from {name}",
+    "speakerRenameTitle": "Rename {name}",
+    "speakerRenameSave": "Save speaker name",
+    "speakerRenameCancel": "Cancel rename",
+    "speakerNamePlaceholder": "Speaker name"
   },
   "style": {
     "title": "Subtitle Style",

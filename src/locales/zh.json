@@ -69,7 +69,15 @@
     "default": "默认",
     "reset": "重置",
     "selected": "{count} 已选择",
-    "speakerLabel": "说话人 {id}"
+    "speakerLabel": "说话人 {id}",
+    "speakers": "说话人",
+    "speakerCount": "{count} 位",
+    "speakerSegmentCount": "{count} 句",
+    "speakerSeekTitle": "定位到 {name} 的第一句",
+    "speakerRenameTitle": "重命名 {name}",
+    "speakerRenameSave": "保存说话人名称",
+    "speakerRenameCancel": "取消重命名",
+    "speakerNamePlaceholder": "说话人名称"
   },
   "fontSelector": {
     "title": "字体选择"
